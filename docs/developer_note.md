@@ -1,6 +1,6 @@
 Todo:
-- [ ] Implement CLI
-- [ ] Implement logger
+- [ ] Implement CLI: clap
+- [ ] Implement logger: slog
 - [ ] Implement Crawler
 - [ ] Implement rate limiter
 - [ ] Implement output formatter

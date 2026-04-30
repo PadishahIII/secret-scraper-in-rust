@@ -1,7 +1,11 @@
 [package]
-name = "secret-scraper-in-rust"
+name = "secret-scraper"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = "4.6.1"
+clap = { version = "4.6.1", features = ["derive"] }
+pub-fields = "0.1.1"
+slog = "2.8.2"
+slog-async = "2.8.0"
+slog-term = "2.9.2"
