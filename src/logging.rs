@@ -1,13 +1,17 @@
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-pub fn init_tracing() -> WorkerGuard {
+pub fn init_tracing(debug: bool) -> WorkerGuard {
     let file_appender = tracing_appender::rolling::daily("./logs", "scraper.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
-    let filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new("info"))
-        .expect("valid filter");
+    let filter = if debug {
+        EnvFilter::new("debug")
+    } else {
+        EnvFilter::try_from_default_env()
+            .or_else(|_| EnvFilter::try_new("info"))
+            .expect("valid filter")
+    };
 
     let stdout_layer = fmt::layer()
         .with_writer(std::io::stdout)
