@@ -1,15 +1,16 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{error, fs::File, io::{self, BufRead, BufReader}, path::PathBuf, str::FromStr};
 
 use clap::{Parser, ValueEnum};
 use pub_fields::pub_fields;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug,Copy)]
+#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub(crate) enum StatusRange {
     Exact(u16),
     Range(u16, u16),
 }
 #[pub_fields]
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default, Serialize, Deserialize)]
 #[command(version, about)]
 pub struct Config {
     #[arg(long, help = "Enable debug")]
@@ -90,9 +91,11 @@ pub struct Config {
     )]
     local: Option<PathBuf>,
 }
-#[derive(Debug, ValueEnum, Clone)]
+#[derive(Debug, ValueEnum, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub(crate) enum Mode {
     #[value(name = "1")]
+    #[default]
     Normal,
     #[value(name = "2")]
     Thorough,
@@ -106,6 +109,16 @@ impl FromStr for Mode {
             "2" => Ok(Mode::Thorough),
             _ => Err(format!("invalid mode: {}", s))
         }
+    }
+}
+impl Config{
+    pub fn load_from_yaml(path:PathBuf) -> Result<Config, Box<dyn error::Error>>{
+        if !path.is_file(){
+            return Err(io::Error::other(format!("{} is not a yaml file", path.display())).into());
+        }
+        let f = File::open(path)?;
+        let cfg:Config = serde_yaml::from_reader(BufReader::new(f))?;
+        Ok(cfg)
     }
 }
 
