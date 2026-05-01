@@ -1,9 +1,9 @@
-use std::process;
-
-use clap::{Parser, Subcommand, ValueEnum};
-use cli::Cli;
-use slog::{error, log};
 mod cli;
+mod logging;
+
+use crate::cli::Cli;
+use clap::Parser;
+use slog::error;
 
 fn main() {
     let drain = slog::Discard; // todo
