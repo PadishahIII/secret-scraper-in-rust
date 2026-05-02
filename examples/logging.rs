@@ -1,7 +1,7 @@
 use secret_scraper::logging::init_tracing;
 
 fn main() {
-    let _guard = init_tracing();
+    let _guard = init_tracing(false);
     let a = 1;
     let b = "b";
     #[derive(Debug, Copy, Clone)]
