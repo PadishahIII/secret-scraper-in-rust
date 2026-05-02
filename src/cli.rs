@@ -8,7 +8,8 @@ use std::{
 
 use clap::{Parser, ValueEnum};
 use pub_fields::pub_fields;
-use serde::{Deserialize, Serialize};
+use regex::Regex;
+use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
 
 #[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub(crate) enum StatusRange {
@@ -19,9 +20,9 @@ pub(crate) enum StatusRange {
 /// CLI argument layer — every field is optional so it can be merged
 /// over a base [`Config`]. Applied after any YAML config layer.
 #[pub_fields]
-#[derive(Debug, Default, Deserialize, Parser)]
+#[derive(Debug, Default, Deserialize, Serialize, Parser)]
 #[command(version, about)]
-pub struct ConfigLayer {
+pub struct CliConfigLayer {
     #[arg(long, help = "Enable debug")]
     pub debug: Option<bool>,
 
@@ -123,23 +124,42 @@ pub struct ConfigLayer {
     )]
     pub local: Option<PathBuf>,
 }
-
-impl ConfigLayer {
-    pub fn load_from_yaml(path: PathBuf) -> Result<ConfigLayer, Box<dyn error::Error>> {
+pub trait LoadFromYaml<T: DeserializeOwned> {
+    fn load_from_yaml(path: PathBuf) -> Result<T, Box<dyn error::Error>> {
         if !path.is_file() {
             return Err(io::Error::other(format!("{} is not a yaml file", path.display())).into());
         }
         let f = File::open(path)?;
-        let cfg: ConfigLayer = serde_yaml::from_reader(BufReader::new(f))?;
+        let cfg: T = serde_yaml::from_reader(BufReader::new(f))?;
         Ok(cfg)
     }
 }
 
+impl LoadFromYaml<CliConfigLayer> for CliConfigLayer {}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct FileConfigLayer {
+    #[serde(flatten)]
+    pub cli_options: CliConfigLayer,
+
+    #[serde(rename = "urlFind")]
+    pub url_find_rules: Vec<String>,
+    #[serde(rename = "jsFind")]
+    pub js_find_rules: Vec<String>,
+    pub rules: Option<Vec<RuleItem>>,
+}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RuleItem {
+    name: String,
+    regex: String,
+    loaded: bool,
+}
+impl LoadFromYaml<FileConfigLayer> for FileConfigLayer {}
+
 /// Concrete runtime config built by merging layers.
 /// Start with [`Config::default()`], apply YAML via [`ConfigLayer`],
 /// then apply CLI via [`ConfigLayer`], and call [`Config::validate`].
-#[pub_fields]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize)]
 pub struct Config {
     pub debug: bool,
     pub user_agent: Option<String>,
@@ -163,9 +183,126 @@ pub struct Config {
     pub detail: bool,
     pub validate: bool,
     pub local: Option<PathBuf>,
+    #[serde(rename = "urlFind")]
+    pub url_find_rules: Vec<Rule>,
+    #[serde(rename = "jsFind")]
+    pub js_find_rules: Vec<Rule>,
+    #[serde(rename = "rules")]
+    pub custom_rules: Vec<Rule>,
+}
+pub struct Rule {
+    name: String,
+    regex: Regex,
+}
+impl Rule {
+    pub fn new(name: String, regex: &str) -> Result<Self, regex::Error> {
+        Ok(Self {
+            name,
+            regex: Regex::new(regex)?,
+        })
+    }
+}
+impl Config {
+    fn default_url_find_rules() -> Vec<Rule> {
+        vec![
+                            Rule::new(
+                "builtin_1".to_string(),
+                r#"["'‘“`]\s{0,6}(https{0,1}:[-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100}?)\s{0,6}["''‘“`]'"#,
+            ).unwrap(),
+                Rule::new(
+                "builtin_2".to_string(),
+                r#"=\s{0,6}(https{0,1}:[-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100})"#,
+            ).unwrap(),
+                Rule::new(
+                "builtin_3".to_string(),
+                r#"["'‘“`]\s{0,6}([#,.]{0,2}/[-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100}?)\s{0,6}["''‘“`]"#,
+            ).unwrap(),
+                Rule::new(
+                "builtin_4".to_string(),
+                r#""([-a-zA-Z0-9()@:%_\+.~#?&//={}]+?[/]{1}[-a-zA-Z0-9()@:%_\+.~#?&//={}]+?)""#,
+            ).unwrap(),
+                Rule::new(
+                "builtin_5".to_string(),
+                r#"href\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100})|action\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100})"#,
+            ).unwrap(),
+
+
+        ]
+    }
+    fn default_js_find_rules() -> Vec<Rule> {
+        vec![
+                        Rule::new(
+                "builtin_6".to_string(),
+                r#"(https{0,1}:[-a-zA-Z0-9（）@:%_\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\+.~#?&//=]{3}[.]js)"#,
+            ).unwrap(),
+                Rule::new(
+                "builtin_7".to_string(),
+                r#"["'‘“`]\s{0,6}(/{0,1}[-a-zA-Z0-9（）@:%_\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\+.~#?&//=]{3}[.]js)"#,
+            ).unwrap(),
+                Rule::new(
+                "builtin_8".to_string(),
+                r#"=\s{0,6}[",',’,”]{0,1}\s{0,6}(/{0,1}[-a-zA-Z0-9（）@:%_\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\+.~#?&//=]{3}[.]js)"#,
+            ).unwrap(),
+        ]
+    }
+    fn default_custom_rules() -> Vec<Rule> {
+        vec![
+                            Rule::new(
+                "Swagger".to_string(),
+                r#"\b[\w/]+?((swagger-ui.html)|(\"swagger\":)|(Swagger UI)|(swaggerUi)|(swaggerVersion))\b"#,
+            ).unwrap(),
+                Rule::new(
+                "ID Card".to_string(),
+                r#"\b((\d{8}(0\d|10|11|12)([0-2]\d|30|31)\d{3}\$)|(\d{6}(18|19|20)\d{2}(0[1-9]|10|11|12)([0-2]\d|30|31)\d{3}(\d|X|x)))\b"#,
+            ).unwrap(),
+                Rule::new(
+                "Phone".to_string(),
+                r#"\b((?:(?:\+|00)86)?1(?:(?:3[\d])|(?:4[5-79])|(?:5[0-35-9])|(?:6[5-7])|(?:7[0-8])|(?:8[\d])|(?:9[189]))\d{8})\b"#,
+            ).unwrap(),
+                Rule::new(
+                "JS Map".to_string(),
+                r#"\b([\w/]+?\.js\.map)"#,
+            ).unwrap(),
+                Rule::new(
+                "URL as a value".to_string(),
+                r#"(\b\w+?=(https?)(://|%3a%2f%2f))"#,
+            ).unwrap(),
+                Rule::new(
+                "Email".to_string(),
+                r#"\b(([a-z0-9][_|\.])*[a-z0-9]+@([a-z0-9][-|_|\.])*[a-z0-9]+\.([a-z]{2,}))\b"#,
+            ).unwrap(),
+                Rule::new(
+                "Internal IP".to_string(),
+                r#"[^0-9]((127\.0\.0\.1)|(10\.\d{1,3}\.\d{1,3}\.\d{1,3})|(172\.((1[6-9])|(2\d)|(3[01]))\.\d{1,3}\.\d{1,3})|(192\.168\.\d{1,3}\.\d{1,3}))"#,
+            ).unwrap(),
+                Rule::new(
+                "Cloud Key".to_string(),
+                r#"\b((accesskeyid)|(accesskeysecret)|\b(LTAI[a-z0-9]{12,20}))\b"#,
+            ).unwrap(),
+                Rule::new(
+                "Shiro".to_string(),
+                r#"(=deleteMe|rememberMe=)"#,
+            ).unwrap(),
+                Rule::new(
+                "Suspicious API Key".to_string(),
+                r#"["'][0-9a-zA-Z]{32}['"]"#,
+            ).unwrap(),
+
+        ]
+    }
+    /// Defalt [`Config`] with default rules filled
+    pub fn default_with_rules() -> Self {
+        Self {
+            url_find_rules: Self::default_url_find_rules(),
+            js_find_rules: Self::default_js_find_rules(),
+            custom_rules: Self::default_custom_rules(),
+            ..Self::default()
+        }
+    }
 }
 
 impl Default for Config {
+    /// Default [`Config`] without any rule
     fn default() -> Self {
         Self {
             debug: false,
@@ -190,14 +327,29 @@ impl Default for Config {
             detail: false,
             validate: false,
             local: None,
+            url_find_rules: vec![],
+            js_find_rules: vec![],
+            custom_rules: vec![],
         }
+    }
+}
+impl Serialize for Rule {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut rule = serializer.serialize_map(Some(3))?;
+        rule.serialize_entry("name", &self.name)?;
+        rule.serialize_entry("regex", &self.regex.to_string())?;
+        rule.serialize_entry("loaded", &true)?;
+        rule.end()
     }
 }
 
 impl Config {
     /// Merge a [`ConfigLayer`] into this config. Only `Some` fields in the
     /// layer override the current values — `None` fields are skipped.
-    pub fn apply(&mut self, layer: ConfigLayer) {
+    pub fn apply_cli_layer(&mut self, layer: CliConfigLayer) {
         macro_rules! set_value {
             ($($field:ident),* ) => {
                 $(
@@ -244,6 +396,48 @@ impl Config {
             proxy,
             local
         );
+    }
+    pub fn apply_file_layer(&mut self, layer: FileConfigLayer) -> Result<(), String> {
+        self.apply_cli_layer(layer.cli_options);
+        let mut errors = vec![];
+        let mut add_rules = |rules: Vec<String>, name_prefix| {
+            for (i, s) in rules.iter().enumerate() {
+                match Rule::new(format!("{name_prefix}_{i}"), s) {
+                    Ok(r) => {
+                        self.js_find_rules.push(r);
+                    }
+                    Err(e) => {
+                        errors.push(e);
+                    }
+                }
+            }
+        };
+        add_rules(layer.js_find_rules, "jsFind");
+        add_rules(layer.url_find_rules, "urlFind");
+        if let Some(r) = layer.rules {
+            for item in r.iter().filter(|i| i.loaded) {
+                match Rule::new(item.name.clone(), &item.regex) {
+                    Ok(rule) => {
+                        self.custom_rules.push(rule);
+                    }
+                    Err(e) => {
+                        errors.push(e);
+                    }
+                }
+            }
+        }
+
+        if !errors.is_empty() {
+            return Err(format!(
+                "fail to compile regex:\n {}",
+                errors
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<String>>()
+                    .join("\n")
+            ));
+        }
+        Ok(())
     }
 
     /// Validate that required fields are present.
@@ -319,12 +513,12 @@ fn parse_status_range(s: &str) -> Result<Vec<StatusRange>, String> {
 #[test]
 fn verify_cli() {
     use clap::CommandFactory;
-    ConfigLayer::command().debug_assert();
+    CliConfigLayer::command().debug_assert();
 }
 
 #[test]
 fn verify_help() {
-    let result = ConfigLayer::try_parse_from(["secret-scraper", "--help"]);
+    let result = CliConfigLayer::try_parse_from(["secret-scraper", "--help"]);
     // --help triggers a DisplayHelp error in clap, which is expected
     match result {
         Ok(_) => panic!("--help should exit with DisplayHelp"),

@@ -9,6 +9,7 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 pub-fields = "0.1.1"
+regex = "1.12.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
 tracing = "0.1.44"
