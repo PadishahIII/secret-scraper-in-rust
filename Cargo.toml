@@ -7,13 +7,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.102"
+async-trait = "0.1.89"
 clap = { version = "4.6.1", features = ["derive"] }
+globset = "0.4.18"
 globwalk = "0.9.1"
 pub-fields = "0.1.1"
 regex = "1.12.3"
+scraper = "0.26.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_yaml = "0.9.34"
 tokio = { version = "1.52.1", features = ["fs", "full", "net"] }
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+url = "2.5.8"

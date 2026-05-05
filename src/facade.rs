@@ -1,3 +1,6 @@
+use anyhow::Result;
+use async_trait::async_trait;
+use serde::Serialize;
 use std::{
     error::Error,
     fs::File,
@@ -6,22 +9,26 @@ use std::{
 };
 
 use globwalk::GlobWalkerBuilder;
+use tokio::fs;
 
 use crate::{cli::Config, handler::RegexHandler, scanner::FileScanner};
 
+#[async_trait]
+pub trait ScanFacade {
+    async fn start(&mut self);
+}
 pub struct FileScannerFacade<'a> {
-    config: &'a Config,
-    scanner: FileScanner<PathBuf, RegexHandler<'a>>,
-    outfile: Box<dyn io::Write>,
+    scanner: FileScanner<PathBuf, RegexHandler>,
+    outfile: Box<dyn io::Write + Send + 'a>,
 }
 impl<'a> FileScannerFacade<'a> {
-    pub fn new(config: &'a Config) -> Result<Self, Box<dyn Error>> {
-        let out: Box<dyn io::Write> = if let Some(f) = &config.outfile {
+    pub fn new(config: Config) -> Result<Self> {
+        let out: Box<dyn io::Write + Send + 'a> = if let Some(f) = &config.outfile {
             Box::new(File::open(f)?)
         } else {
             Box::new(stdout())
         };
-        let handler = RegexHandler::new(&config.custom_rules);
+        let handler = RegexHandler::new(config.custom_rules);
         let base = config
             .local
             .as_ref()
@@ -38,11 +45,42 @@ impl<'a> FileScannerFacade<'a> {
         };
         let scanner = FileScanner::new(targets, handler);
         Ok(Self {
-            config,
             scanner,
             outfile: out,
         })
     }
 }
+#[async_trait]
+impl<'a> ScanFacade for FileScannerFacade<'a> {
+    async fn start(&mut self) {
+        match self.scanner.scan().await {
+            Ok(res) => {
+                self.outfile
+                    .write_all(
+                        serde_yaml::to_string(&res)
+                            .map_err(|e| format!("fail to serialize scanner result: {e}"))
+                            .unwrap()
+                            .as_bytes(),
+                    )
+                    .map_err(|e| format!("fail to write scanner result to file: {e}"))
+                    .unwrap();
+            }
+            Err(e) => {
+                tracing::error!("scanner failed: {e}")
+            }
+        };
+    }
+}
 
 pub struct CrawlerFacade {}
+impl CrawlerFacade {
+    pub fn new() -> Result<Self> {
+        Ok(Self {})
+    }
+}
+#[async_trait]
+impl ScanFacade for CrawlerFacade {
+    async fn start(&mut self) {
+        todo!("implement me");
+    }
+}

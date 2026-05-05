@@ -1,19 +1,23 @@
 mod cli;
 mod facade;
+mod filter;
 mod handler;
 mod logging;
 mod scanner;
+mod urlparser;
 
 use std::{fs::File, io::BufWriter, path::PathBuf};
 
 use crate::{
     cli::{CliConfigLayer, Config, FileConfigLayer},
+    facade::{CrawlerFacade, FileScannerFacade, ScanFacade},
     logging::init_tracing,
 };
 use clap::Parser;
 use cli::LoadFromYaml;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli_layer = CliConfigLayer::parse();
 
     let yaml_path = cli_layer.config.clone().or_else(|| {
@@ -58,5 +62,18 @@ fn main() {
     }
 
     let _guard = init_tracing(config.debug);
-    // todo: init facade and run
+    let mut facade: Box<dyn ScanFacade> = if config.local.is_some() {
+        Box::new(
+            FileScannerFacade::new(config)
+                .map_err(|e| format!("fail to create FileScannerFacade: {e}"))
+                .unwrap(),
+        )
+    } else {
+        Box::new(
+            CrawlerFacade::new()
+                .map_err(|e| format!("fail to create CrawlerFacade: {e}"))
+                .unwrap(),
+        )
+    };
+    facade.start().await;
 }
