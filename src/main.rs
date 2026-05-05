@@ -1,6 +1,8 @@
 mod cli;
 mod facade;
+mod handler;
 mod logging;
+mod scanner;
 
 use std::{fs::File, io::BufWriter, path::PathBuf};
 

@@ -12,7 +12,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
 
 #[derive(Clone, Debug, Copy, Serialize, Deserialize)]
-pub(crate) enum StatusRange {
+pub enum StatusRange {
     Exact(u16),
     Range(u16, u16),
 }
@@ -150,9 +150,9 @@ pub struct FileConfigLayer {
 }
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct RuleItem {
-    name: String,
-    regex: String,
-    loaded: bool,
+    pub name: String,
+    pub regex: String,
+    pub loaded: bool,
 }
 impl LoadFromYaml<FileConfigLayer> for FileConfigLayer {}
 
@@ -191,8 +191,8 @@ pub struct Config {
     pub custom_rules: Vec<Rule>,
 }
 pub struct Rule {
-    name: String,
-    regex: Regex,
+    pub name: String,
+    pub regex: Regex,
 }
 impl Rule {
     pub fn new(name: String, regex: &str) -> Result<Self, regex::Error> {
@@ -452,7 +452,7 @@ impl Config {
 }
 
 #[derive(Debug, ValueEnum, Clone, Serialize, Deserialize, Default)]
-pub(crate) enum Mode {
+pub enum Mode {
     #[value(name = "1")]
     #[default]
     Normal,
@@ -472,7 +472,7 @@ impl FromStr for Mode {
     }
 }
 
-fn parse_domain_filter(s: &str) -> Result<Vec<String>, String> {
+pub fn parse_domain_filter(s: &str) -> Result<Vec<String>, String> {
     s.split(',')
         .map(str::trim)
         .filter(|e| !e.is_empty())
@@ -488,7 +488,7 @@ fn existing_file(s: &str) -> Result<PathBuf, String> {
     }
 }
 
-fn parse_status_range(s: &str) -> Result<Vec<StatusRange>, String> {
+pub fn parse_status_range(s: &str) -> Result<Vec<StatusRange>, String> {
     s.split(',')
         .map(|e| {
             let mut parts = e.splitn(2, '-').map(str::trim);
