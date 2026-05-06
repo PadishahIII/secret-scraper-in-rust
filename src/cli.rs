@@ -6,15 +6,40 @@ use std::{
     str::FromStr,
 };
 
+use anyhow::{Result, anyhow, bail};
 use clap::{Parser, ValueEnum};
 use pub_fields::pub_fields;
 use regex::Regex;
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
 
+use crate::urlparser::ResponseStatus;
+
 #[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub enum StatusRange {
     Exact(u16),
     Range(u16, u16),
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StatusRangeRule {
+    ranges: Vec<StatusRange>,
+}
+impl StatusRangeRule {
+    /// Check if the given status matches any of the allowed ranges.
+    pub fn is_allowed(&self, status: ResponseStatus) -> bool {
+        let status_code = match status {
+            ResponseStatus::Unknown => return false,
+            ResponseStatus::Valid(s) => s,
+        };
+        self.ranges.iter().any(|range| match range {
+            StatusRange::Exact(s) => *s == status_code,
+            StatusRange::Range(start, end) => *start <= status_code && status_code <= *end,
+        })
+    }
+}
+impl From<Vec<StatusRange>> for StatusRangeRule {
+    fn from(ranges: Vec<StatusRange>) -> Self {
+        Self { ranges }
+    }
 }
 
 /// CLI argument layer — every field is optional so it can be merged
@@ -92,7 +117,7 @@ pub struct CliConfigLayer {
         help = "Filter response status to display, seperated by commas, e.g. 200,300-400",
         value_parser = parse_status_range,
     )]
-    pub status_filter: Option<Vec<StatusRange>>,
+    pub status_filter: Option<StatusRangeRule>,
 
     #[arg(
         short = 'x',
@@ -175,7 +200,7 @@ pub struct Config {
     pub max_concurrency_per_domain: Option<usize>,
     pub min_request_interval: Option<f32>,
     pub outfile: Option<PathBuf>,
-    pub status_filter: Option<Vec<StatusRange>>,
+    pub status_filter: Option<StatusRangeRule>,
     pub proxy: Option<String>,
     pub hide_regex: bool,
     pub follow_redirect: bool,
@@ -334,7 +359,7 @@ impl Default for Config {
     }
 }
 impl Serialize for Rule {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
@@ -397,7 +422,7 @@ impl Config {
             local
         );
     }
-    pub fn apply_file_layer(&mut self, layer: FileConfigLayer) -> Result<(), String> {
+    pub fn apply_file_layer(&mut self, layer: FileConfigLayer) -> Result<()> {
         self.apply_cli_layer(layer.cli_options);
         let mut errors = vec![];
         let mut add_rules = |rules: Vec<String>, name_prefix| {
@@ -428,7 +453,7 @@ impl Config {
         }
 
         if !errors.is_empty() {
-            return Err(format!(
+            return Err(anyhow!(
                 "fail to compile regex:\n {}",
                 errors
                     .iter()
@@ -441,11 +466,9 @@ impl Config {
     }
 
     /// Validate that required fields are present.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> Result<()> {
         if self.url.is_empty() && self.url_file.is_none() && self.local.is_none() {
-            return Err(
-                "At least one of --url, --url-file, or --local must be specified".to_string(),
-            );
+            bail!("At least one of --url, --url-file, or --local must be specified".to_string(),);
         }
         Ok(())
     }
@@ -472,7 +495,7 @@ impl FromStr for Mode {
     }
 }
 
-pub fn parse_domain_filter(s: &str) -> Result<Vec<String>, String> {
+pub fn parse_domain_filter(s: &str) -> Result<Vec<String>> {
     s.split(',')
         .map(str::trim)
         .filter(|e| !e.is_empty())
@@ -480,28 +503,28 @@ pub fn parse_domain_filter(s: &str) -> Result<Vec<String>, String> {
         .collect()
 }
 
-fn existing_file(s: &str) -> Result<PathBuf, String> {
+fn existing_file(s: &str) -> Result<PathBuf> {
     let p = PathBuf::from(s);
     match p.exists() {
         true => Ok(p),
-        false => Err(format!("file does not exist: {}", s)),
+        false => Err(anyhow!("file does not exist: {}", s)),
     }
 }
 
-pub fn parse_status_range(s: &str) -> Result<Vec<StatusRange>, String> {
+pub fn parse_status_range(s: &str) -> Result<Vec<StatusRange>> {
     s.split(',')
-        .map(|e| {
+        .map(|e: &str| -> Result<StatusRange> {
             let mut parts = e.splitn(2, '-').map(str::trim);
             let start: u16 = parts
                 .next()
-                .ok_or_else(|| format!("invalid status range: '{e}'"))?
+                .ok_or_else(|| anyhow!("invalid status range: '{e}'"))?
                 .parse()
-                .map_err(|err| format!("invalid status range: '{e}' {err}"))?;
+                .map_err(|err| anyhow!("invalid status range: '{e}' {err}"))?;
             match parts.next() {
                 Some(end) => {
                     let end: u16 = end
                         .parse()
-                        .map_err(|err| format!("invalid status range: '{e}' {err}"))?;
+                        .map_err(|err| anyhow!("invalid status range: '{e}' {err}"))?;
                     Ok(StatusRange::Range(start, end))
                 }
                 None => Ok(StatusRange::Exact(start)),

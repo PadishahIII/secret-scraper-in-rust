@@ -1,5 +1,5 @@
-// use crate::cli::StatusRange;
+use crate::cli::{StatusRange, StatusRangeRule};
 
-// pub struct Formatter {
-//     allowed_status: &Vec<StatusRange>,
-// }
+pub struct Formatter {
+    allowed_status: StatusRangeRule,
+}

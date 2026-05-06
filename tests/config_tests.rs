@@ -1,4 +1,5 @@
 use secret_scraper::cli::*;
+use secret_scraper::urlparser::ResponseStatus;
 use std::path::PathBuf;
 
 fn fully_specified_cli_layer() -> CliConfigLayer {
@@ -17,10 +18,7 @@ fn fully_specified_cli_layer() -> CliConfigLayer {
         max_concurrency_per_domain: Some(16),
         min_request_interval: Some(0.5),
         outfile: Some(PathBuf::from("out.csv")),
-        status_filter: Some(vec![
-            StatusRange::Exact(200),
-            StatusRange::Range(300, 399),
-        ]),
+        status_filter: Some(vec![StatusRange::Exact(200), StatusRange::Range(300, 399)].into()),
         proxy: Some("http://proxy:8080".into()),
         hide_regex: Some(true),
         follow_redirect: Some(true),
@@ -35,31 +33,58 @@ fn assert_config_matches_fully_specified_cli(config: &Config) {
     assert!(config.debug);
     assert_eq!(config.user_agent.as_deref(), Some("cli-ua"));
     assert_eq!(config.cookie.as_deref(), Some("cli-cookie"));
-    assert_eq!(config.allow_domains.as_deref(), Some(&["example.com".to_string()][..]));
-    assert_eq!(config.disallow_domains.as_deref(), Some(&["bad.com".to_string()][..]));
-    assert_eq!(config.url_file.as_deref(), Some(PathBuf::from("urls.txt").as_path()));
-    assert_eq!(config.config.as_deref(), Some(PathBuf::from("custom.yaml").as_path()));
+    assert_eq!(
+        config.allow_domains.as_deref(),
+        Some(&["example.com".to_string()][..])
+    );
+    assert_eq!(
+        config.disallow_domains.as_deref(),
+        Some(&["bad.com".to_string()][..])
+    );
+    assert_eq!(
+        config.url_file.as_deref(),
+        Some(PathBuf::from("urls.txt").as_path())
+    );
+    assert_eq!(
+        config.config.as_deref(),
+        Some(PathBuf::from("custom.yaml").as_path())
+    );
     assert!(matches!(config.mode, Mode::Thorough));
     assert_eq!(config.max_page, 42);
     assert_eq!(config.max_connections, 8);
     assert_eq!(config.max_keepalive_connections, 4);
     assert_eq!(config.max_concurrency_per_domain, Some(16));
     assert_eq!(config.min_request_interval, Some(0.5));
-    assert_eq!(config.outfile.as_deref(), Some(PathBuf::from("out.csv").as_path()));
-    assert_eq!(config.status_filter.as_ref().map(|v: &Vec<StatusRange>| v.len()), Some(2));
+    assert_eq!(
+        config.outfile.as_deref(),
+        Some(PathBuf::from("out.csv").as_path())
+    );
+    let status_filter = config.status_filter.as_ref().expect("status filter");
+    assert!(status_filter.is_allowed(ResponseStatus::Valid(200)));
+    assert!(status_filter.is_allowed(ResponseStatus::Valid(302)));
+    assert!(status_filter.is_allowed(ResponseStatus::Valid(399)));
+    assert!(!status_filter.is_allowed(ResponseStatus::Valid(400)));
+    assert!(!status_filter.is_allowed(ResponseStatus::Unknown));
     assert_eq!(config.proxy.as_deref(), Some("http://proxy:8080"));
     assert!(config.hide_regex);
     assert!(config.follow_redirect);
     assert_eq!(config.url, "https://cli-target.example");
     assert!(config.detail);
     assert!(config.validate);
-    assert_eq!(config.local.as_deref(), Some(PathBuf::from("/tmp/scan").as_path()));
+    assert_eq!(
+        config.local.as_deref(),
+        Some(PathBuf::from("/tmp/scan").as_path())
+    );
 }
 
 fn yaml_layer_from_str(yaml: &str) -> FileConfigLayer {
     let mut full_yaml = String::new();
-    if !yaml.contains("urlFind:") { full_yaml.push_str("urlFind: []\n"); }
-    if !yaml.contains("jsFind:") { full_yaml.push_str("jsFind: []\n"); }
+    if !yaml.contains("urlFind:") {
+        full_yaml.push_str("urlFind: []\n");
+    }
+    if !yaml.contains("jsFind:") {
+        full_yaml.push_str("jsFind: []\n");
+    }
     full_yaml.push_str(yaml);
     serde_yaml::from_str(&full_yaml).expect("valid yaml")
 }
@@ -100,9 +125,15 @@ fn default_with_rules_populated() {
     assert!(!cfg.url_find_rules.is_empty());
     assert!(!cfg.js_find_rules.is_empty());
     assert!(!cfg.custom_rules.is_empty());
-    for rule in &cfg.url_find_rules { assert!(!rule.name.is_empty()); }
-    for rule in &cfg.js_find_rules { assert!(!rule.name.is_empty()); }
-    for rule in &cfg.custom_rules { assert!(!rule.name.is_empty()); }
+    for rule in &cfg.url_find_rules {
+        assert!(!rule.name.is_empty());
+    }
+    for rule in &cfg.js_find_rules {
+        assert!(!rule.name.is_empty());
+    }
+    for rule in &cfg.custom_rules {
+        assert!(!rule.name.is_empty());
+    }
     assert_eq!(cfg.max_page, 100_000);
     assert_eq!(cfg.max_connections, 100);
 }
@@ -118,7 +149,12 @@ fn cli_layer_overrides_all_default_fields() {
 #[test]
 fn cli_layer_partial_only_overrides_specified_fields() {
     let mut cfg = Config::default_with_rules();
-    let cli = CliConfigLayer { debug: Some(true), max_page: Some(500), url: Some("https://partial.example".into()), ..Default::default() };
+    let cli = CliConfigLayer {
+        debug: Some(true),
+        max_page: Some(500),
+        url: Some("https://partial.example".into()),
+        ..Default::default()
+    };
     cfg.apply_cli_layer(cli);
     assert!(cfg.debug);
     assert_eq!(cfg.max_page, 500);
@@ -147,10 +183,17 @@ fn empty_cli_layer_changes_nothing() {
 #[test]
 fn cli_option_field_none_does_not_clear_existing_value() {
     let mut cfg = Config::default();
-    cfg.apply_cli_layer(CliConfigLayer { user_agent: Some("first-ua".into()), proxy: Some("first-proxy".into()), ..Default::default() });
+    cfg.apply_cli_layer(CliConfigLayer {
+        user_agent: Some("first-ua".into()),
+        proxy: Some("first-proxy".into()),
+        ..Default::default()
+    });
     assert_eq!(cfg.user_agent.as_deref(), Some("first-ua"));
     assert_eq!(cfg.proxy.as_deref(), Some("first-proxy"));
-    cfg.apply_cli_layer(CliConfigLayer { max_page: Some(999), ..Default::default() });
+    cfg.apply_cli_layer(CliConfigLayer {
+        max_page: Some(999),
+        ..Default::default()
+    });
     assert_eq!(cfg.user_agent.as_deref(), Some("first-ua"));
     assert_eq!(cfg.proxy.as_deref(), Some("first-proxy"));
     assert_eq!(cfg.max_page, 999);
@@ -159,18 +202,28 @@ fn cli_option_field_none_does_not_clear_existing_value() {
 #[test]
 fn cli_bool_fields_toggle_correctly() {
     let mut cfg = Config::default();
-    cfg.apply_cli_layer(CliConfigLayer { debug: Some(true), ..Default::default() });
+    cfg.apply_cli_layer(CliConfigLayer {
+        debug: Some(true),
+        ..Default::default()
+    });
     assert!(cfg.debug);
-    cfg.apply_cli_layer(CliConfigLayer { hide_regex: Some(true), ..Default::default() });
+    cfg.apply_cli_layer(CliConfigLayer {
+        hide_regex: Some(true),
+        ..Default::default()
+    });
     assert!(cfg.hide_regex);
-    cfg.apply_cli_layer(CliConfigLayer { follow_redirect: Some(true), ..Default::default() });
+    cfg.apply_cli_layer(CliConfigLayer {
+        follow_redirect: Some(true),
+        ..Default::default()
+    });
     assert!(cfg.follow_redirect);
     assert!(cfg.debug);
 }
 
 #[test]
 fn yaml_deserialization_empty() {
-    let layer: FileConfigLayer = serde_yaml::from_str("urlFind: []\njsFind: []").expect("empty yaml");
+    let layer: FileConfigLayer =
+        serde_yaml::from_str("urlFind: []\njsFind: []").expect("empty yaml");
     assert!(layer.url_find_rules.is_empty());
     assert!(layer.js_find_rules.is_empty());
     assert!(layer.rules.is_none());
@@ -199,7 +252,10 @@ rules:
 "#;
     let layer: FileConfigLayer = serde_yaml::from_str(yaml).expect("full yaml");
     assert_eq!(layer.cli_options.debug, Some(true));
-    assert_eq!(layer.cli_options.url.as_deref(), Some("https://yaml-target.example"));
+    assert_eq!(
+        layer.cli_options.url.as_deref(),
+        Some("https://yaml-target.example")
+    );
     assert_eq!(layer.cli_options.max_page, Some(999));
     assert_eq!(layer.url_find_rules.len(), 2);
     assert_eq!(layer.url_find_rules[0], "url_pattern_1");
@@ -217,10 +273,12 @@ rules:
 #[test]
 fn yaml_overrides_defaults() {
     let mut cfg = Config::default();
-    let yaml = yaml_layer_from_str(r#"debug: true
+    let yaml = yaml_layer_from_str(
+        r#"debug: true
 url: "https://from-yaml.example"
 max_page: 777
-"#);
+"#,
+    );
     cfg.apply_file_layer(yaml).expect("valid");
     assert!(cfg.debug);
     assert_eq!(cfg.url, "https://from-yaml.example");
@@ -229,13 +287,14 @@ max_page: 777
     assert_eq!(cfg.user_agent, None);
 }
 
-
 #[test]
 fn yaml_partial_only_overrides_specified_fields() {
     let mut cfg = Config::default();
-    let yaml = yaml_layer_from_str(r#"debug: true
+    let yaml = yaml_layer_from_str(
+        r#"debug: true
 proxy: "socks5://yaml-proxy:1080"
-"#);
+"#,
+    );
     cfg.apply_file_layer(yaml).expect("valid");
     assert!(cfg.debug);
     assert_eq!(cfg.proxy.as_deref(), Some("socks5://yaml-proxy:1080"));
@@ -251,13 +310,15 @@ fn yaml_rule_compilation_and_appending() {
     let mut cfg = Config::default_with_rules();
     let orig_js = cfg.js_find_rules.len();
     let orig_custom = cfg.custom_rules.len();
-    let yaml = yaml_layer_from_str(r#"jsFind:
+    let yaml = yaml_layer_from_str(
+        r#"jsFind:
   - "test_js_pattern\\d+"
 rules:
   - name: "TestSecret"
     regex: "SECRET_[A-Z]+"
     loaded: true
-"#);
+"#,
+    );
     cfg.apply_file_layer(yaml).expect("valid");
     assert!(cfg.js_find_rules.len() > orig_js);
     assert!(cfg.custom_rules.len() > orig_custom);
@@ -270,14 +331,16 @@ rules:
 fn yaml_loaded_false_rules_are_skipped() {
     let mut cfg = Config::default_with_rules();
     let orig = cfg.custom_rules.len();
-    let yaml = yaml_layer_from_str(r#"rules:
+    let yaml = yaml_layer_from_str(
+        r#"rules:
   - name: "ActiveRule"
     regex: "active_\\d+"
     loaded: true
   - name: "SkippedRule"
     regex: "skip_me"
     loaded: false
-"#);
+"#,
+    );
     cfg.apply_file_layer(yaml).expect("valid");
     assert_eq!(cfg.custom_rules.len(), orig + 1);
     assert_eq!(cfg.custom_rules.last().unwrap().name, "ActiveRule");
@@ -286,26 +349,30 @@ fn yaml_loaded_false_rules_are_skipped() {
 #[test]
 fn yaml_invalid_regex_returns_error() {
     let mut cfg = Config::default();
-    let yaml = yaml_layer_from_str(r#"rules:
+    let yaml = yaml_layer_from_str(
+        r#"rules:
   - name: "BadRule"
     regex: "[unclosed"
     loaded: true
-"#);
+"#,
+    );
     let r = cfg.apply_file_layer(yaml);
     assert!(r.is_err());
-    assert!(r.unwrap_err().contains("fail to compile regex"));
+    assert!(r.unwrap_err().to_string().contains("fail to compile regex"));
 }
 
 #[test]
 fn yaml_invalid_regex_still_applies_field_overrides() {
     let mut cfg = Config::default();
-    let yaml = yaml_layer_from_str(r#"debug: true
+    let yaml = yaml_layer_from_str(
+        r#"debug: true
 max_page: 555
 rules:
   - name: "BadRule"
     regex: "[unclosed"
     loaded: true
-"#);
+"#,
+    );
     let r = cfg.apply_file_layer(yaml);
     assert!(r.is_err());
     assert!(cfg.debug);
@@ -315,13 +382,20 @@ rules:
 #[test]
 fn full_cascade_cli_wins_over_yaml() {
     let mut cfg = Config::default();
-    let yaml = yaml_layer_from_str(r#"debug: false
+    let yaml = yaml_layer_from_str(
+        r#"debug: false
 max_page: 300
 url: "https://from-yaml.example"
 proxy: "http://yaml-proxy:3128"
-"#);
+"#,
+    );
     cfg.apply_file_layer(yaml).expect("valid");
-    let cli = CliConfigLayer { debug: Some(true), max_page: Some(999), url: Some("https://from-cli.example".into()), ..Default::default() };
+    let cli = CliConfigLayer {
+        debug: Some(true),
+        max_page: Some(999),
+        url: Some("https://from-cli.example".into()),
+        ..Default::default()
+    };
     cfg.apply_cli_layer(cli);
     assert!(cfg.debug);
     assert_eq!(cfg.max_page, 999);
@@ -334,11 +408,16 @@ proxy: "http://yaml-proxy:3128"
 #[test]
 fn cascade_yaml_overrides_default_when_cli_unspecified() {
     let mut cfg = Config::default();
-    let yaml = yaml_layer_from_str(r#"follow_redirect: true
+    let yaml = yaml_layer_from_str(
+        r#"follow_redirect: true
 max_keepalive_connections: 25
-"#);
+"#,
+    );
     cfg.apply_file_layer(yaml).expect("valid");
-    let cli = CliConfigLayer { url: Some("https://target.example".into()), ..Default::default() };
+    let cli = CliConfigLayer {
+        url: Some("https://target.example".into()),
+        ..Default::default()
+    };
     cfg.apply_cli_layer(cli);
     assert!(cfg.follow_redirect);
     assert_eq!(cfg.max_keepalive_connections, 25);
@@ -351,13 +430,18 @@ fn cascade_preserves_rules_through_all_layers() {
     let mut cfg = Config::default_with_rules();
     let builtin_url = cfg.url_find_rules.len();
     let builtin_custom = cfg.custom_rules.len();
-    let yaml = yaml_layer_from_str(r#"rules:
+    let yaml = yaml_layer_from_str(
+        r#"rules:
   - name: "YamlRule"
     regex: "yaml_secret"
     loaded: true
-"#);
+"#,
+    );
     cfg.apply_file_layer(yaml).expect("valid");
-    let cli = CliConfigLayer { debug: Some(true), ..Default::default() };
+    let cli = CliConfigLayer {
+        debug: Some(true),
+        ..Default::default()
+    };
     cfg.apply_cli_layer(cli);
     assert_eq!(cfg.url_find_rules.len(), builtin_url);
     assert_eq!(cfg.custom_rules.len(), builtin_custom + 1);
@@ -368,13 +452,18 @@ fn cascade_preserves_rules_through_all_layers() {
 #[test]
 fn cascade_option_field_none_does_not_clear_earlier_layer() {
     let mut cfg = Config::default();
-    let yaml = yaml_layer_from_str(r#"user_agent: "yaml-ua"
+    let yaml = yaml_layer_from_str(
+        r#"user_agent: "yaml-ua"
 proxy: "yaml-proxy"
-"#);
+"#,
+    );
     cfg.apply_file_layer(yaml).expect("valid");
     assert_eq!(cfg.user_agent.as_deref(), Some("yaml-ua"));
     assert_eq!(cfg.proxy.as_deref(), Some("yaml-proxy"));
-    let cli = CliConfigLayer { max_page: Some(42), ..Default::default() };
+    let cli = CliConfigLayer {
+        max_page: Some(42),
+        ..Default::default()
+    };
     cfg.apply_cli_layer(cli);
     assert_eq!(cfg.user_agent.as_deref(), Some("yaml-ua"));
     assert_eq!(cfg.proxy.as_deref(), Some("yaml-proxy"));
@@ -419,7 +508,7 @@ fn validate_fails_when_all_inputs_empty() {
     cfg.local = None;
     let r = cfg.validate();
     assert!(r.is_err());
-    assert!(r.unwrap_err().contains("At least one of"));
+    assert!(r.unwrap_err().to_string().contains("At least one of"));
 }
 
 #[test]
@@ -490,6 +579,18 @@ fn parse_status_range_with_ranges() {
     assert_eq!(r.len(), 2);
     assert!(matches!(r[0], StatusRange::Range(200, 299)));
     assert!(matches!(r[1], StatusRange::Exact(404)));
+}
+
+#[test]
+fn status_range_rule_allows_exact_and_range_matches() {
+    let rule = StatusRangeRule::from(vec![StatusRange::Exact(201), StatusRange::Range(300, 399)]);
+
+    assert!(rule.is_allowed(ResponseStatus::Valid(201)));
+    assert!(rule.is_allowed(ResponseStatus::Valid(300)));
+    assert!(rule.is_allowed(ResponseStatus::Valid(399)));
+    assert!(!rule.is_allowed(ResponseStatus::Valid(200)));
+    assert!(!rule.is_allowed(ResponseStatus::Valid(400)));
+    assert!(!rule.is_allowed(ResponseStatus::Unknown));
 }
 
 #[test]

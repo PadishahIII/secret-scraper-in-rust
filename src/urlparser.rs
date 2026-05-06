@@ -17,12 +17,12 @@ static ref IGNORED_URL:Regex = Regex::new("\\<|\\>|\\{|\\}|\\[|\\]|\\||\\^|;|/no
 static ref WORDS: Regex = Regex::new("[a-zA-Z0-9]+").unwrap();
 }
 
-#[derive(Debug, Clone)]
-pub enum ResponseStatus<'a> {
+#[derive(Debug, Clone, Copy)]
+pub enum ResponseStatus {
     Unknown,
-    Valid(&'a str),
+    Valid(u16),
 }
-impl<'a> Display for ResponseStatus<'a> {
+impl Display for ResponseStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ResponseStatus::Unknown => write!(f, "Unknown"),
@@ -38,7 +38,7 @@ pub struct URLNode<'a> {
     #[builder(setter(skip))]
     pub url_obj: Url,
     #[builder(default=ResponseStatus::Unknown)]
-    pub response_status: ResponseStatus<'a>,
+    pub response_status: ResponseStatus,
     pub depth: u32,
     #[builder(setter(strip_option))]
     pub parent: Option<&'a URLNode<'a>>,
