@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod facade;
 pub mod filter;
+pub mod formatter;
 pub mod handler;
 pub mod logging;
 pub mod scanner;

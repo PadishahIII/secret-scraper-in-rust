@@ -1,9 +1,10 @@
 Todo:
-- [ ] Implement CLI: clap
+- [x] Implement CLI: clap
 - [x] Implement logger via tracing
 - [ ] Implement Crawler
 - [ ] Implement rate limiter
 - [ ] Implement output formatter
+- [ ] Implement lib interface: builder...
 - [ ] Add unit tests
 - [ ] Add integration tests
 - [ ] Add examples

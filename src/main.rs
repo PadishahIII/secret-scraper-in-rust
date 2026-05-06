@@ -1,6 +1,7 @@
 mod cli;
 mod facade;
 mod filter;
+mod formatter;
 mod handler;
 mod logging;
 mod scanner;

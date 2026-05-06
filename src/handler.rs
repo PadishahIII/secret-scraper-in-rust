@@ -1,13 +1,14 @@
 use std::error::Error;
 
 use anyhow::Result;
+use derive_builder::Builder;
 use serde::Serialize;
 
 use crate::cli::Rule;
 
-#[derive(PartialEq, Eq, Hash, Serialize)]
+#[derive(PartialEq, Eq, Hash, Serialize, Builder)]
 pub struct Secret {
-    type_: String,
+    secret_type: String,
     data: String,
 }
 pub trait Handler {
@@ -31,7 +32,7 @@ impl Handler for RegexHandler {
                 rule.regex
                     .find_iter(text)
                     .map(|m| Secret {
-                        type_: rule.name.clone(),
+                        secret_type: rule.name.clone(),
                         data: m.as_str().to_owned(),
                     })
                     .collect::<Vec<Secret>>()
