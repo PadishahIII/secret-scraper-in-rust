@@ -1,4 +1,3 @@
-use std::error::Error;
 
 use anyhow::Result;
 use derive_builder::Builder;
@@ -8,8 +7,8 @@ use crate::cli::Rule;
 
 #[derive(PartialEq, Eq, Hash, Serialize, Builder)]
 pub struct Secret {
-    secret_type: String,
-    data: String,
+    pub secret_type: String,
+    pub data: String,
 }
 pub trait Handler {
     fn handle(&self, text: &str) -> Result<Vec<Secret>>;

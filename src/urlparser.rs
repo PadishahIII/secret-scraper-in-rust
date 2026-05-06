@@ -7,6 +7,8 @@ use regex::Regex;
 use scraper::{Html, Selector};
 use url::Url;
 
+use crate::handler::Handler;
+
 static STATIC_EXTS: &[&str] = &[
     ".png", ".jpg", ".jpeg", ".gif", ".css", ".ico", ".dtd", ".svg", ".scss", ".vue", ".ts",
 ];
@@ -104,21 +106,41 @@ impl<'a> URLNodeBuilder<'a> {
     }
 }
 
-pub struct URLParser {}
-impl URLParser {
+#[derive(Builder)]
+pub struct URLParser<H>
+where
+    H: Handler,
+{
+    handler: Option<H>,
+}
+
+impl<H: Handler> URLParser<H> {
     pub fn extract_urls<'a>(
         &self,
         base_url: &'a URLNode,
         text: &str,
     ) -> Result<HashSet<URLNode<'a>>> {
         let mut found_urls: HashSet<URLNode> = HashSet::new();
-
-        let doc = Html::parse_document(text);
-        let a_sel = Selector::parse("a[href]").unwrap();
-        let link_sel = Selector::parse("link[href]").unwrap();
-        let script_sel = Selector::parse("script[src]").unwrap();
-
         let mut hrefs: HashSet<String> = HashSet::new();
+        // extract hrefs by regex
+        if let Some(handler) = &self.handler {
+            hrefs.extend(
+                handler
+                    .handle(text)?
+                    .into_iter()
+                    .map(|secret| secret.data)
+                    .collect::<Vec<String>>(),
+            );
+        }
+        // extract hrefs by html
+        let doc = Html::parse_document(text);
+        let a_sel = Selector::parse("a[href]")
+            .map_err(|e| anyhow!("fail to parse selector a[href]: {e}"))?;
+        let link_sel = Selector::parse("link[href]")
+            .map_err(|e| anyhow!("fail to parse selector link[href]: {e}"))?;
+        let script_sel = Selector::parse("script[src]")
+            .map_err(|e| anyhow!("fail to parse selector script[src]: {e}"))?;
+
         for ele in doc.select(&a_sel) {
             if let Some(href) = ele.value().attr("href") {
                 hrefs.insert(href.to_string());
@@ -148,8 +170,9 @@ impl URLParser {
                     if !url.scheme().is_empty()
                         && url.host().is_some()
                         && !url.host_str().unwrap_or_default().is_empty()
+                        && ["http", "https"].contains(&url.scheme())
                     {
-                        // a full url
+                        // a valid url
                         let node = URLNodeBuilder::default()
                             .url(url.to_string())
                             .parent(base_url)
@@ -157,9 +180,9 @@ impl URLParser {
                             .build()?;
                         found_urls.insert(node);
                     } else {
-                        // only a path on base_url
-                        let mut url_obj = base_url.url_obj.clone();
-                        url_obj.set_path(url.path());
+                        // invalid url, derive host and scheme from base_url
+                        let url_obj = base_url.url_obj.clone();
+                        let mut url_obj = url_obj.join(url.path()).unwrap_or(url_obj).to_owned();
                         url_obj.set_query(url.query());
                         url_obj.set_fragment(url.fragment());
                         let node = URLNodeBuilder::default()
@@ -170,8 +193,16 @@ impl URLParser {
                         found_urls.insert(node);
                     }
                 }
-                Err(e) => {
-                    tracing::debug!("fail to parse href {href}: {e}");
+                Err(_) => {
+                    // assume [`href`] is always a path here
+                    let url_obj = base_url.url_obj.clone();
+                    let mut url_obj = url_obj.join(&href).unwrap_or(url_obj).to_owned();
+                    let node = URLNodeBuilder::default()
+                        .url(url_obj.to_string())
+                        .parent(base_url)
+                        .depth(base_url.depth + 1)
+                        .build()?;
+                    found_urls.insert(node);
                 }
             }
         }
@@ -189,18 +220,35 @@ fn sanitize_url(url: &str) -> String {
         .replace("%3A", ":")
         .replace("%2F", "/");
     let url = url.trim();
-    if let None = WORDS.find(url) {
+    if WORDS.find(url).is_none() {
         return "".to_string();
     }
-    if let Some(_) = IGNORED_URL.find(url) {
+    if let Some(m) = IGNORED_URL.find(url)
+        && !m.as_str().is_empty()
+    {
         return "".to_string();
     }
     if url.starts_with("javascript") {
         return "".to_string();
     }
-    "".to_string()
+    url.to_owned()
 }
 fn is_localhost(url: &Url) -> bool {
     let u = url.host_str().unwrap_or_default();
     u.starts_with("127.0.0.1") || u.starts_with("localhost")
+}
+fn response_title(response_str: &str) -> Result<String> {
+    let doc = Html::parse_document(response_str);
+    let title_sel =
+        Selector::parse("title").map_err(|e| anyhow!("fail to parse title selector: {e}"))?;
+    Ok(doc
+        .select(&title_sel)
+        .map(|ele| ele.text().collect())
+        .map(|s: String| s.replace("\n", " ").replace("\r", " ").trim().to_string())
+        .collect::<Vec<String>>()
+        .join("|"))
+}
+/// Get the directory part of a path, including the trailing slash. If there is no slash, return an empty string.
+fn dir_of(path: String) -> Option<String> {
+    path.rfind('/').map(|i| path[..=i].into())
 }

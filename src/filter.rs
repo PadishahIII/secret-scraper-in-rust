@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use globset::{Glob, GlobMatcher, GlobSet};
+use globset::{Glob, GlobMatcher};
 use url::Url;
 
 pub trait URLFilter {

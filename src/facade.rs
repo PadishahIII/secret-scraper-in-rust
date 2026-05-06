@@ -1,15 +1,12 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use serde::Serialize;
 use std::{
-    error::Error,
     fs::File,
     io::{self, stdout},
     path::PathBuf,
 };
 
 use globwalk::GlobWalkerBuilder;
-use tokio::fs;
 
 use crate::{cli::Config, handler::RegexHandler, scanner::FileScanner};
 
