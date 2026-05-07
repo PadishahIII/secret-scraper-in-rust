@@ -63,8 +63,8 @@ impl Formatter {
                     .map(|c| c.to_string())
                     .unwrap_or_default()
             ),
-            ct = self.format_normal_result(url.content_type.unwrap_or_default()),
-            title = self.format_normal_result(url.title.unwrap_or_default()),
+            ct = self.format_normal_result(&url.content_type.clone().unwrap_or_default()),
+            title = self.format_normal_result(&url.title.clone().unwrap_or_default()),
         )
         .to_string()
     }
@@ -289,10 +289,10 @@ pub fn output_csv(
     for (url, secrets) in url_secrets {
         writer.write_record([
             url.url.to_owned(),
-            url.title.unwrap_or_default().to_string(),
+            url.title.clone().unwrap_or_default(),
             url.response_status.to_string(),
             url.content_length.unwrap_or_default().to_string(),
-            url.content_type.unwrap_or_default().to_string(),
+            url.content_type.clone().unwrap_or_default(),
             secrets
                 .iter()
                 .map(|s| format!("{}: {}", s.secret_type, s.data))
@@ -305,10 +305,10 @@ pub fn output_csv(
         if url_secrets.get(url).is_none() {
             writer.write_record([
                 url.url.to_owned(),
-                url.title.unwrap_or_default().to_string(),
+                url.title.clone().unwrap_or_default(),
                 url.response_status.to_string(),
                 url.content_length.unwrap_or_default().to_string(),
-                url.content_type.unwrap_or_default().to_string(),
+                url.content_type.clone().unwrap_or_default(),
                 "".to_string(),
             ])?;
             count += 1;
@@ -317,10 +317,10 @@ pub fn output_csv(
             if url_secrets.get(url).is_none() {
                 writer.write_record([
                     url.url.to_owned(),
-                    url.title.unwrap_or_default().to_string(),
+                    url.title.clone().unwrap_or_default(),
                     url.response_status.to_string(),
                     url.content_length.unwrap_or_default().to_string(),
-                    url.content_type.unwrap_or_default().to_string(),
+                    url.content_type.clone().unwrap_or_default(),
                     "".to_string(),
                 ])?;
                 count += 1;

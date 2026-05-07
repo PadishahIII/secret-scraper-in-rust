@@ -1,5 +1,4 @@
 pub mod cli;
-pub mod crawler;
 pub mod facade;
 pub mod filter;
 pub mod handler;
@@ -7,4 +6,5 @@ pub mod logging;
 pub mod output;
 pub mod rate_limiter;
 pub mod scanner;
+pub mod scraper;
 pub mod urlparser;

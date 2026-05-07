@@ -33,7 +33,7 @@ impl Handler for StaticHandler {
     }
 }
 
-fn root_node(url: &str) -> URLNode<'static> {
+fn root_node(url: &str) -> URLNode {
     URLNodeBuilder::default()
         .url(url.to_string())
         .depth(0)
@@ -57,9 +57,9 @@ fn parser_with_regex(
         .expect("valid parser")
 }
 
-fn extract_urls<'a>(
+fn extract_urls(
     parser: &secret_scraper::urlparser::URLParser<impl Handler>,
-    base_url: &'a URLNode<'a>,
+    base_url: &URLNode,
     html: &str,
 ) -> Vec<String> {
     parser
@@ -188,19 +188,6 @@ fn urlnode_equality_and_hash_use_parsed_url_only() {
 #[test]
 fn urlnode_builder_rejects_empty_url() {
     let result = URLNodeBuilder::default().url(String::new()).build();
-
-    assert!(result.is_err());
-}
-
-#[test]
-fn urlnode_builder_requires_child_depth_to_exceed_parent_depth() {
-    let parent = root_node("https://random.com/");
-
-    let result = URLNodeBuilder::default()
-        .url("https://random.com/child".to_string())
-        .parent(&parent)
-        .depth(parent.depth)
-        .build();
 
     assert!(result.is_err());
 }

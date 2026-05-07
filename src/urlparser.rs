@@ -35,76 +35,65 @@ impl Display for ResponseStatus {
     }
 }
 
-#[derive(Debug, Builder)]
+#[derive(Debug, Builder, Clone)]
 #[builder(default, build_fn(skip))]
-pub struct URLNode<'a> {
+pub struct URLNode {
     pub url: String,
     #[builder(setter(skip))]
     pub url_obj: Url,
     #[builder(default=ResponseStatus::Unknown)]
     pub response_status: ResponseStatus,
     pub depth: u32,
-    #[builder(setter(strip_option))]
-    pub parent: Option<&'a URLNode<'a>>,
     pub content_length: Option<u32>,
-    pub content_type: Option<&'a str>,
-    pub title: Option<&'a str>,
+    pub content_type: Option<String>,
+    pub title: Option<String>,
 }
-impl<'a> Default for URLNode<'a> {
+impl Default for URLNode {
     fn default() -> Self {
         Self {
             url: String::new(),
             url_obj: Url::parse("about:blank").unwrap(),
             response_status: ResponseStatus::Unknown,
             depth: 0,
-            parent: None,
             content_length: None,
             content_type: None,
             title: None,
         }
     }
 }
-impl<'a> Hash for URLNode<'a> {
+impl Hash for URLNode {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.url_obj.hash(state);
     }
 }
-impl<'a> PartialEq for URLNode<'a> {
+impl PartialEq for URLNode {
     fn eq(&self, other: &Self) -> bool {
         self.url_obj == other.url_obj
     }
 }
-impl<'a> Eq for URLNode<'a> {}
+impl Eq for URLNode {}
 
-impl<'a> URLNodeBuilder<'a> {
+impl URLNodeBuilder {
     fn validate(&self) -> Result<()> {
         if let Some(url) = &self.url
             && url.is_empty()
         {
             bail!("URL cannot be empty");
         }
-        match self.parent.unwrap_or_default() {
-            Some(parent) if self.depth.unwrap_or_default() <= parent.depth => {
-                Err(anyhow!("Depth must be greater than parent's depth"))
-            }
-            _ => Ok(()),
-        }
+        Ok(())
     }
-    pub fn build(&self) -> Result<URLNode<'a>> {
+    pub fn build(&self) -> Result<URLNode> {
         let url = self.url.clone().unwrap_or_default();
         let url_obj = Url::parse(&url)?;
         self.validate()?;
         Ok(URLNode {
             url,
             url_obj,
-            response_status: self
-                .response_status
-                .unwrap_or(ResponseStatus::Unknown),
+            response_status: self.response_status.unwrap_or(ResponseStatus::Unknown),
             depth: self.depth.unwrap_or_default(),
-            parent: self.parent.unwrap_or_default(),
             content_length: self.content_length.unwrap_or_default(),
-            content_type: self.content_type.unwrap_or_default(),
-            title: self.title.unwrap_or_default(),
+            content_type: self.content_type.clone().unwrap_or_default(),
+            title: self.title.clone().unwrap_or_default(),
         })
     }
 }
@@ -118,11 +107,7 @@ where
 }
 
 impl<H: Handler> URLParser<H> {
-    pub fn extract_urls<'a>(
-        &self,
-        base_url: &'a URLNode,
-        text: &str,
-    ) -> Result<HashSet<URLNode<'a>>> {
+    pub fn extract_urls(&self, base_url: &URLNode, text: &str) -> Result<HashSet<URLNode>> {
         let mut found_urls: HashSet<URLNode> = HashSet::new();
         let mut hrefs: HashSet<String> = HashSet::new();
         // extract hrefs by regex
@@ -178,7 +163,6 @@ impl<H: Handler> URLParser<H> {
                         // a valid url
                         let node = URLNodeBuilder::default()
                             .url(url.to_string())
-                            .parent(base_url)
                             .depth(base_url.depth + 1)
                             .build()?;
                         found_urls.insert(node);
@@ -190,7 +174,6 @@ impl<H: Handler> URLParser<H> {
                         url_obj.set_fragment(url.fragment());
                         let node = URLNodeBuilder::default()
                             .url(url_obj.to_string())
-                            .parent(base_url)
                             .depth(base_url.depth + 1)
                             .build()?;
                         found_urls.insert(node);
@@ -202,7 +185,6 @@ impl<H: Handler> URLParser<H> {
                     let url_obj = url_obj.join(&href).unwrap_or(url_obj).to_owned();
                     let node = URLNodeBuilder::default()
                         .url(url_obj.to_string())
-                        .parent(base_url)
                         .depth(base_url.depth + 1)
                         .build()?;
                     found_urls.insert(node);

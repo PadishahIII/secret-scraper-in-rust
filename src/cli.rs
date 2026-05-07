@@ -12,7 +12,6 @@ use pub_fields::pub_fields;
 use regex::Regex;
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
 
-
 #[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub enum StatusRange {
     Exact(u16),

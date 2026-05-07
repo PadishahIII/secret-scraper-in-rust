@@ -11,7 +11,7 @@ use secret_scraper::{
     urlparser::{ResponseStatus, URLNode, URLNodeBuilder},
 };
 
-fn node(url: &str, status: ResponseStatus) -> URLNode<'static> {
+fn node(url: &str, status: ResponseStatus) -> URLNode {
     URLNodeBuilder::default()
         .url(url.to_string())
         .response_status(status)
@@ -26,14 +26,14 @@ fn detailed_node(
     content_length: Option<u32>,
     content_type: Option<&'static str>,
     title: Option<&'static str>,
-) -> URLNode<'static> {
+) -> URLNode {
     URLNodeBuilder::default()
         .url(url.to_string())
         .response_status(status)
         .depth(0)
         .content_length(content_length)
-        .content_type(content_type)
-        .title(title)
+        .content_type(content_type.map(str::to_string))
+        .title(title.map(str::to_string))
         .build()
         .expect("valid URL node")
 }

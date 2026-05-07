@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use derive_builder::Builder;
 use std::{
     fs::File,
     io::{self, stdout},
@@ -69,11 +70,12 @@ impl<'a> ScanFacade for FileScannerFacade<'a> {
     }
 }
 
-pub struct CrawlerFacade {}
-impl CrawlerFacade {
-    pub fn new() -> Result<Self> {
-        Ok(Self {})
-    }
+#[derive(Builder)]
+pub struct CrawlerFacade {
+    #[builder(default=Some(5))]
+    max_concurrency_per_domain: Option<u32>,
+    #[builder(default=Some(0.2))]
+    min_request_interval: Option<f32>,
 }
 #[async_trait]
 impl ScanFacade for CrawlerFacade {

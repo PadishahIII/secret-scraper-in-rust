@@ -1,5 +1,4 @@
 mod cli;
-mod crawler;
 mod facade;
 mod filter;
 mod handler;
@@ -7,13 +6,14 @@ mod logging;
 mod output;
 mod rate_limiter;
 mod scanner;
+mod scraper;
 mod urlparser;
 
 use std::{fs::File, io::BufWriter, path::PathBuf};
 
 use crate::{
     cli::{CliConfigLayer, Config, FileConfigLayer},
-    facade::{CrawlerFacade, FileScannerFacade, ScanFacade},
+    facade::{CrawlerFacade, CrawlerFacadeBuilder, FileScannerFacade, ScanFacade},
     logging::init_tracing,
 };
 use clap::Parser;
@@ -73,7 +73,8 @@ async fn main() {
         )
     } else {
         Box::new(
-            CrawlerFacade::new()
+            CrawlerFacadeBuilder::default()
+                .build()
                 .map_err(|e| format!("fail to create CrawlerFacade: {e}"))
                 .unwrap(),
         )
