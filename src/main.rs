@@ -5,6 +5,7 @@ mod filter;
 mod handler;
 mod logging;
 mod output;
+mod rate_limiter;
 mod scanner;
 mod urlparser;
 
