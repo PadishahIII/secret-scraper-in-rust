@@ -19,14 +19,18 @@ static ref WORDS: Regex = Regex::new("[a-zA-Z0-9]+").unwrap();
 
 #[derive(Debug, Clone, Copy)]
 pub enum ResponseStatus {
+    /// the url is not requested yet
     Unknown,
     Valid(u16),
+    /// invalid response status
+    Failed,
 }
 impl Display for ResponseStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ResponseStatus::Unknown => write!(f, "Unknown"),
             ResponseStatus::Valid(s) => write!(f, "{s}"),
+            ResponseStatus::Failed => write!(f, "Failed"),
         }
     }
 }
@@ -95,7 +99,6 @@ impl<'a> URLNodeBuilder<'a> {
             url_obj,
             response_status: self
                 .response_status
-                .clone()
                 .unwrap_or(ResponseStatus::Unknown),
             depth: self.depth.unwrap_or_default(),
             parent: self.parent.unwrap_or_default(),
@@ -196,7 +199,7 @@ impl<H: Handler> URLParser<H> {
                 Err(_) => {
                     // assume [`href`] is always a path here
                     let url_obj = base_url.url_obj.clone();
-                    let mut url_obj = url_obj.join(&href).unwrap_or(url_obj).to_owned();
+                    let url_obj = url_obj.join(&href).unwrap_or(url_obj).to_owned();
                     let node = URLNodeBuilder::default()
                         .url(url_obj.to_string())
                         .parent(base_url)

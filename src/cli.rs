@@ -12,7 +12,6 @@ use pub_fields::pub_fields;
 use regex::Regex;
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
 
-use crate::urlparser::ResponseStatus;
 
 #[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub enum StatusRange {
@@ -25,11 +24,7 @@ pub struct StatusRangeRule {
 }
 impl StatusRangeRule {
     /// Check if the given status matches any of the allowed ranges.
-    pub fn is_allowed(&self, status: ResponseStatus) -> bool {
-        let status_code = match status {
-            ResponseStatus::Unknown => return false,
-            ResponseStatus::Valid(s) => s,
-        };
+    pub fn is_allowed(&self, status_code: u16) -> bool {
         self.ranges.iter().any(|range| match range {
             StatusRange::Exact(s) => *s == status_code,
             StatusRange::Range(start, end) => *start <= status_code && status_code <= *end,

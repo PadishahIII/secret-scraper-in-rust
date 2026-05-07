@@ -79,3 +79,8 @@ impl ChainedURLFilter {
         ChainedURLFilterBuilder { filters: vec![] }
     }
 }
+impl URLFilter for ChainedURLFilter {
+    fn filter(&self, url: &Url) -> bool {
+        self.filters.iter().all(|f| f.filter(url))
+    }
+}

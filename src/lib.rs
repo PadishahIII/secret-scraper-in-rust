@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod crawler;
 pub mod facade;
 pub mod filter;
 pub mod handler;

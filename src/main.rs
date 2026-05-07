@@ -1,4 +1,5 @@
 mod cli;
+mod crawler;
 mod facade;
 mod filter;
 mod handler;

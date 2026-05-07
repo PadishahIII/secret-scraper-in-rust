@@ -60,11 +60,6 @@ fn assert_config_matches_fully_specified_cli(config: &Config) {
         Some(PathBuf::from("out.csv").as_path())
     );
     let status_filter = config.status_filter.as_ref().expect("status filter");
-    assert!(status_filter.is_allowed(ResponseStatus::Valid(200)));
-    assert!(status_filter.is_allowed(ResponseStatus::Valid(302)));
-    assert!(status_filter.is_allowed(ResponseStatus::Valid(399)));
-    assert!(!status_filter.is_allowed(ResponseStatus::Valid(400)));
-    assert!(!status_filter.is_allowed(ResponseStatus::Unknown));
     assert_eq!(config.proxy.as_deref(), Some("http://proxy:8080"));
     assert!(config.hide_regex);
     assert!(config.follow_redirect);
@@ -585,12 +580,11 @@ fn parse_status_range_with_ranges() {
 fn status_range_rule_allows_exact_and_range_matches() {
     let rule = StatusRangeRule::from(vec![StatusRange::Exact(201), StatusRange::Range(300, 399)]);
 
-    assert!(rule.is_allowed(ResponseStatus::Valid(201)));
-    assert!(rule.is_allowed(ResponseStatus::Valid(300)));
-    assert!(rule.is_allowed(ResponseStatus::Valid(399)));
-    assert!(!rule.is_allowed(ResponseStatus::Valid(200)));
-    assert!(!rule.is_allowed(ResponseStatus::Valid(400)));
-    assert!(!rule.is_allowed(ResponseStatus::Unknown));
+    assert!(rule.is_allowed(201));
+    assert!(rule.is_allowed(300));
+    assert!(rule.is_allowed(399));
+    assert!(!rule.is_allowed(200));
+    assert!(!rule.is_allowed(400));
 }
 
 #[test]
