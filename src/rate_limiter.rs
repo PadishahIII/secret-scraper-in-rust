@@ -12,6 +12,7 @@ struct DomainState {
     sema: sync::Semaphore,
     last_request_started_at: sync::Mutex<Instant>,
 }
+// TODO: use arc to reuse among workers
 #[derive(Builder)]
 #[builder(build_fn(validate = "Self::validate"))]
 pub struct DomainRateLimiter<'a> {
