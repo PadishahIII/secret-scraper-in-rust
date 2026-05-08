@@ -3,10 +3,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::bail;
 use derive_builder::Builder;
 use tokio::{sync, time::sleep};
-use url::Url;
 
 struct DomainState {
     sema: sync::Semaphore,
@@ -29,7 +27,7 @@ impl<'a> DomainRateLimiterBuilder<'a> {
         if let Some(m) = self.max_concurrency_per_domain
             && m == 0
         {
-            return Err(format!("max_concurrency_per_domain must be at least 1"));
+            return Err("max_concurrency_per_domain must be at least 1".to_string());
         }
         Ok(())
     }

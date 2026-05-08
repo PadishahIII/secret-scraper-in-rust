@@ -263,7 +263,7 @@ impl Formatter {
                 }
             }
             ResponseStatus::Unknown => true,
-            ResponseStatus::Failed => false,
+            ResponseStatus::Failed(_) => false,
         }
     }
 }

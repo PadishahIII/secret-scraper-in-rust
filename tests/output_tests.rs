@@ -23,7 +23,7 @@ fn node(url: &str, status: ResponseStatus) -> URLNode {
 fn detailed_node(
     url: &str,
     status: ResponseStatus,
-    content_length: Option<u32>,
+    content_length: Option<u64>,
     content_type: Option<&'static str>,
     title: Option<&'static str>,
 ) -> URLNode {

@@ -1,32 +1,44 @@
-use std::fmt::Error;
+use std::{collections::HashSet, sync::Arc};
 
-use actix::{Actor, Context, ResponseFuture, WrapFuture};
+use actix::{Actor, Context, ResponseFuture};
 use derive_builder::Builder;
 use lazy_static::lazy_static;
-use reqwest::{Client, Response, header};
+use reqwest::{Client, header};
 use scraper::{Html, Selector};
+use tokio::sync::oneshot;
 
 use crate::{
     handler::Handler,
     scraper::bo::{ScrapeArtifacts, ScrapeError, ScrapeMessage, ScrapeResult, ScrapeStdResult},
-    urlparser::{ResponseStatus, URLNode},
+    urlparser::{ResponseStatus, URLNode, URLParser},
 };
 lazy_static! {
     static ref title_selector: Selector = Selector::parse("title").unwrap();
 }
 
 /// Worker actor fetch single url and extract secrets and children
-#[derive(Builder, Clone)]
-pub struct Worker<H: Handler + Unpin + 'static> {
+#[derive(Builder)]
+#[builder(pattern = "owned")]
+pub struct Worker<H: Handler> {
     client: Client,
-    handler: H,
+    handler: Arc<H>,
+    parser: Arc<URLParser<H>>,
 }
-impl<H: Handler + Unpin + 'static> Actor for Worker<H> {
+impl<H: Handler> Clone for Worker<H> {
+    fn clone(&self) -> Self {
+        Self {
+            client: self.client.clone(),
+            handler: self.handler.clone(),
+            parser: self.parser.clone(),
+        }
+    }
+}
+impl<H: Handler> Actor for Worker<H> {
     type Context = Context<Self>;
 }
-impl<H: Handler + Unpin + 'static> actix::Handler<ScrapeMessage> for Worker<H> {
+impl<H: Handler> actix::Handler<ScrapeMessage> for Worker<H> {
     type Result = ResponseFuture<ScrapeResult>;
-    fn handle(&mut self, msg: ScrapeMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ScrapeMessage, _ctx: &mut Self::Context) -> Self::Result {
         let worker = self.clone();
         Box::pin(async move { worker.scrape(msg.url).await })
     }
@@ -35,7 +47,7 @@ enum ScrapeInnerResult {
     Normal(ScrapeArtifacts),
     Ignore(URLNode),
 }
-impl<H: Handler + Unpin + 'static> Worker<H> {
+impl<H: Handler> Worker<H> {
     async fn scrape(self, url: URLNode) -> ScrapeResult {
         match self.scrape_inner(url).await {
             Ok(artifacts) => match artifacts {
@@ -46,28 +58,89 @@ impl<H: Handler + Unpin + 'static> Worker<H> {
         }
     }
     async fn scrape_inner(&self, url: URLNode) -> ScrapeStdResult<ScrapeInnerResult> {
+        let mut url_owned = url;
+        let url = &mut url_owned;
         // fetch
-        let resp = self.client.get(url.url).send().await.map_err(|e| {
+        let resp = self.client.get(url.url.clone()).send().await.map_err(|e| {
             url.response_status = ResponseStatus::Failed(e.to_string());
-            ScrapeError::fetch_error(url.url, e)
+            ScrapeError::fetch_error(url.url.to_string(), e)
         })?;
-        url.response_status = ResponseStatus::Valid(resp.status().as_u16());
-        url.content_length = resp.content_length();
         url.content_type = resp
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
-        let html = resp.text().await?;
+
+        if let Some(content_type) = &url.content_type
+            && !should_process(content_type)
+        {
+            return Ok(ScrapeInnerResult::Ignore(url.clone()));
+        }
+
+        url.response_status = ResponseStatus::Valid(resp.status().as_u16());
+        url.content_length = resp.content_length();
+        let html = resp
+            .text()
+            .await
+            .map_err(|e| ScrapeError::process_error(format!("receive response body: {e}")))?;
         let doc = Html::parse_document(&html);
         url.title = doc
             .select(&title_selector)
             .next()
             .map(|e| e.text().collect::<String>().trim().to_string());
 
-        // extract
-        let secrets = self.handler.handle(&html)?;
+        // extract children links
+        let mut js_children = HashSet::new();
+        let mut url_children = HashSet::new();
+        self.parser
+            .extract_urls(url, &html)
+            .map_err(|e| ScrapeError::process_error(format!("extract urls: {e}")))?
+            .into_iter()
+            .for_each(|u| {
+                if is_js(&u) {
+                    js_children.insert(u);
+                } else {
+                    url_children.insert(u);
+                }
+            });
+        // extract secrets
+        let (tx, rx) = oneshot::channel();
+        let handler = self.handler.clone();
+        rayon::spawn(move || {
+            let out = handler.handle(&html);
+            let _ = tx.send(out);
+        });
+        let secrets = rx
+            .await
+            .map_err(|e| ScrapeError::process_error(format!("rayon task cancelled: {e}")))?
+            .map_err(|e| ScrapeError::process_error(format!("extract secrets: {e}")))?;
 
-        ScrapeInnerResult::Normal(ScrapeArtifacts { url })
+        Ok(ScrapeInnerResult::Normal(ScrapeArtifacts {
+            url: url_owned,
+            secrets: HashSet::from_iter(secrets),
+            js_children,
+            url_children,
+        }))
     }
+}
+fn is_js(url: &URLNode) -> bool {
+    let path = url.url_obj.path().to_lowercase();
+    path.ends_with(".js") || path.ends_with(".js.map")
+}
+fn should_process(content_type: &str) -> bool {
+    let mut content_type = content_type.to_lowercase();
+    if let Some((c, _)) = content_type.split_once(";") {
+        content_type = c.to_string();
+    }
+    content_type.starts_with("text/")
+        || matches!(
+            content_type.as_str(),
+            "application/json"
+                | "application/ld+json"
+                | "application/javascript"
+                | "application/x-javascript"
+                | "application/xml"
+                | "application/xhtml+xml"
+                | "application/x-www-form-urlencoded"
+        )
 }

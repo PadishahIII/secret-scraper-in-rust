@@ -89,7 +89,10 @@ impl URLNodeBuilder {
         Ok(URLNode {
             url,
             url_obj,
-            response_status: self.response_status.unwrap_or(ResponseStatus::Unknown),
+            response_status: self
+                .response_status
+                .clone()
+                .unwrap_or(ResponseStatus::Unknown),
             depth: self.depth.unwrap_or_default(),
             content_length: self.content_length.unwrap_or_default(),
             content_type: self.content_type.clone().unwrap_or_default(),
@@ -99,6 +102,7 @@ impl URLNodeBuilder {
 }
 
 #[derive(Builder)]
+#[builder(pattern = "owned")]
 pub struct URLParser<H>
 where
     H: Handler,

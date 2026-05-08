@@ -1,5 +1,4 @@
 use secret_scraper::cli::*;
-use secret_scraper::urlparser::ResponseStatus;
 use std::path::PathBuf;
 
 fn fully_specified_cli_layer() -> CliConfigLayer {
@@ -59,7 +58,7 @@ fn assert_config_matches_fully_specified_cli(config: &Config) {
         config.outfile.as_deref(),
         Some(PathBuf::from("out.csv").as_path())
     );
-    let status_filter = config.status_filter.as_ref().expect("status filter");
+    let _status_filter = config.status_filter.as_ref().expect("status filter");
     assert_eq!(config.proxy.as_deref(), Some("http://proxy:8080"));
     assert!(config.hide_regex);
     assert!(config.follow_redirect);

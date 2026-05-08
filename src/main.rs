@@ -13,7 +13,7 @@ use std::{fs::File, io::BufWriter, path::PathBuf};
 
 use crate::{
     cli::{CliConfigLayer, Config, FileConfigLayer},
-    facade::{CrawlerFacade, CrawlerFacadeBuilder, FileScannerFacade, ScanFacade},
+    facade::{CrawlerFacadeBuilder, FileScannerFacade, ScanFacade},
     logging::init_tracing,
 };
 use clap::Parser;

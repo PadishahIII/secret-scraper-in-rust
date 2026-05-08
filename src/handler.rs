@@ -9,7 +9,7 @@ pub struct Secret {
     pub secret_type: String,
     pub data: String,
 }
-pub trait Handler {
+pub trait Handler: Send + Sync + 'static {
     fn handle(&self, text: &str) -> Result<Vec<Secret>>;
 }
 

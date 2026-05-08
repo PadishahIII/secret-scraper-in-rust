@@ -1,20 +1,21 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    sync::Arc,
     thread::available_parallelism,
 };
 
 use actix::{Actor, Addr};
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use derive_builder::Builder;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::redirect::Policy;
-use reqwest::{Client, Proxy, Response};
+use reqwest::{Client, Proxy};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio::task;
 use tracing::{debug, error, warn};
 
-use crate::scraper::bo::{ScrapeArtifacts, ScrapeError};
+use crate::scraper::bo::ScrapeError;
 use crate::scraper::worker::{Worker, WorkerBuilder};
 use crate::urlparser::{URLNode, URLNodeBuilder, URLParser};
 use crate::{filter::URLFilter, handler::Handler};
@@ -63,8 +64,9 @@ where
     runtime: &'a Runtime,
     seeds: Vec<String>,
     filter: F,
-    parser: URLParser<H>,
+    parser: Arc<URLParser<H>>,
     rate_limiter: DomainRateLimiter<'a>,
+    secret_handler: Arc<H>,
 
     #[builder(setter(strip_option))]
     max_page_num: Option<u32>,
@@ -84,7 +86,7 @@ where
     timeout: Duration,
 
     #[builder(setter(skip), default = "self.default_workers_addr()?")]
-    workers_addr: Vec<Addr<Worker>>,
+    workers_addr: Vec<Addr<Worker<H>>>,
 
     #[builder(setter(skip), default)]
     state: CrawlerState,
@@ -95,7 +97,7 @@ where
     Filter: URLFilter,
     H: Handler,
 {
-    fn default_workers_addr(&self) -> Result<Vec<Addr<Worker>>> {
+    fn default_workers_addr(&self) -> Result<Vec<Addr<Worker<H>>>> {
         let mut builder = Client::builder();
         if let Some(Some(proxy)) = self.proxy.as_ref() {
             builder = builder.proxy(Proxy::all(proxy)?);
@@ -116,14 +118,20 @@ where
         }
         let client = builder.build()?;
 
-        Ok((0..available_parallelism()?.get())
-            .map(|_| -> Result<Addr<Worker>> {
+        (0..available_parallelism()?.get())
+            .map(|_| -> Result<Addr<Worker<H>>> {
                 Ok(WorkerBuilder::default()
                     .client(client.clone())
+                    .parser(self.parser.clone().ok_or(anyhow!("parser is required"))?)
+                    .handler(
+                        self.secret_handler
+                            .clone()
+                            .ok_or(anyhow!("handler is required"))?,
+                    )
                     .build()?
                     .start())
             })
-            .collect::<Result<Vec<Addr<Worker>>>>()?)
+            .collect::<Result<Vec<Addr<Worker<H>>>>>()
     }
     pub fn build(self) -> Result<Crawler<'a, Filter, H>, String> {
         let workers_addr = self.default_workers_addr().map_err(|e| e.to_string())?;
@@ -133,6 +141,7 @@ where
             filter: self.filter.ok_or("filter is required")?,
             parser: self.parser.ok_or("parser is required")?,
             rate_limiter: self.rate_limiter.ok_or("rate_limiter is required")?,
+            secret_handler: self.secret_handler.ok_or("handler is required")?,
             max_page_num: self.max_page_num.flatten(),
             max_depth: self.max_depth.flatten().or(Some(3)),
             follow_redirects: self.follow_redirects.unwrap_or(false),
@@ -177,32 +186,29 @@ where
                     break;
                 }
                 let depth;
-                match self.state.working_queue.pop_front() {
-                    Some(url) => {
-                        depth = url.depth;
-                        if let Some(m) = self.max_depth
-                            && url.depth > m
-                        {
-                            continue;
-                        }
-                        if self.should_evade(&url) {
-                            continue;
-                        }
-                        let addr = self.workers_addr[next_worker % self.workers_addr.len()].clone();
-                        let tx2 = tx.clone();
-                        task::spawn(async move {
-                            // no shortcircuit, full Result comes into channel
-                            let res = addr
-                                .send(ScrapeMessage { url })
-                                .await
-                                .map_err(|e| e.to_string());
-                            let _ = tx2.send(res).await.map_err(|e| e.to_string());
-                            Ok::<(), String>(())
-                        });
-                        self.state.in_flight += 1;
-                        self.state.page_cnt += 1;
+                if let Some(url) = self.state.working_queue.pop_front() {
+                    depth = url.depth;
+                    if let Some(m) = self.max_depth
+                        && url.depth > m
+                    {
+                        continue;
                     }
-                    None => {}
+                    if self.should_evade(&url) {
+                        continue;
+                    }
+                    let addr = self.workers_addr[next_worker % self.workers_addr.len()].clone();
+                    let tx2 = tx.clone();
+                    task::spawn(async move {
+                        // no shortcircuit, full Result comes into channel
+                        let res: Result<ScrapeResult, String> = addr
+                            .send(ScrapeMessage { url })
+                            .await
+                            .map_err(|e| e.to_string());
+                        let _ = tx2.send(res).await.map_err(|e| e.to_string());
+                        Ok::<(), String>(())
+                    });
+                    self.state.in_flight += 1;
+                    self.state.page_cnt += 1;
                 }
             }
             // end point
@@ -217,9 +223,7 @@ where
                 self.state.in_flight,
                 self.state.visited_urls.len(),
                 self.state
-                    .url_secrets
-                    .iter()
-                    .map(|(k, v)| v.len())
+                    .url_secrets.values().map(|v| v.len())
                     .sum::<usize>(),
             );
             // consumer: consume one result
@@ -296,7 +300,15 @@ where
     }
 
     fn should_evade(&self, url: &URLNode) -> bool {
-        todo!("impl")
+        if let Some(dangerous_paths) = &self.dangerous_paths
+            && dangerous_paths.iter().any(|p| {
+                url.url_obj.path().contains(&format!("/{p}")) || url.url_obj.path().contains(p)
+            })
+        {
+            true
+        } else {
+            false
+        }
     }
     /// Validate the status of scraped urls that are marked as unknown
     async fn validate(&mut self) {
