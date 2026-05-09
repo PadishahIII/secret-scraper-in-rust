@@ -81,6 +81,10 @@ impl ChainedURLFilter {
 }
 impl URLFilter for ChainedURLFilter {
     fn filter(&self, url: &Url) -> bool {
-        self.filters.iter().all(|f| f.filter(url))
+        if self.filters.is_empty() {
+            true
+        } else {
+            self.filters.iter().all(|f| f.filter(url))
+        }
     }
 }

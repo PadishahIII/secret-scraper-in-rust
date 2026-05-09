@@ -13,14 +13,14 @@ use std::{fs::File, io::BufWriter, path::PathBuf};
 
 use crate::{
     cli::{CliConfigLayer, Config, FileConfigLayer},
-    facade::{CrawlerFacadeBuilder, FileScannerFacade, ScanFacade},
+    facade::{CrawlerFacade, FileScannerFacade, ScanFacade},
     logging::init_tracing,
+    scraper::crawler::Crawler,
 };
 use clap::Parser;
 use cli::LoadFromYaml;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let cli_layer = CliConfigLayer::parse();
 
     let yaml_path = cli_layer.config.clone().or_else(|| {
@@ -73,11 +73,10 @@ async fn main() {
         )
     } else {
         Box::new(
-            CrawlerFacadeBuilder::default()
-                .build()
+            CrawlerFacade::new(config)
                 .map_err(|e| format!("fail to create CrawlerFacade: {e}"))
                 .unwrap(),
         )
     };
-    facade.start().await;
+    facade.start();
 }

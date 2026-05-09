@@ -10,17 +10,21 @@ use derive_builder::Builder;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::{Client, Proxy};
-use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use tokio::task;
+use tokio::{runtime::Runtime, sync::Mutex};
 use tracing::{debug, error, warn};
+use url::Url;
 
-use crate::scraper::bo::ScrapeError;
-use crate::scraper::worker::{Worker, WorkerBuilder};
+use crate::scraper::{
+    bo::{FetchMessage, FetchResult},
+    worker::{Worker, WorkerBuilder},
+};
 use crate::urlparser::{URLNode, URLNodeBuilder, URLParser};
 use crate::{filter::URLFilter, handler::Handler};
 use crate::{handler::Secret, scraper::bo::ScrapeMessage};
 use crate::{rate_limiter::DomainRateLimiter, scraper::bo::ScrapeResult};
+use crate::{scraper::bo::ScrapeError, urlparser::ResponseStatus};
 use derive_builder::UninitializedFieldError;
 use std::time::Duration;
 
@@ -46,41 +50,37 @@ impl From<anyhow::Error> for CrawlerBuildError {
 #[derive(Default)]
 struct CrawlerState {
     in_flight: usize,
-    visited_urls: HashSet<URLNode>,
-    found_urls: HashSet<URLNode>,
-    working_queue: VecDeque<URLNode>,
-    urls: HashMap<URLNode, HashSet<URLNode>>,
-    js: HashMap<URLNode, HashSet<URLNode>>,
+    visited_urls: HashSet<Url>,
+    working_queue: VecDeque<Url>,
+    // all urls found, regardless of visited or not
+    url_bucket: HashMap<Url, URLNode>,
+    urls: HashMap<Url, HashSet<Url>>, // index
+    js: HashMap<Url, HashSet<Url>>,
     page_cnt: u32,
-    url_secrets: HashMap<URLNode, HashSet<Secret>>,
+    url_secrets: HashMap<Url, HashSet<Secret>>,
 }
 #[derive(Builder)]
 #[builder(pattern = "owned", build_fn(skip, error = "CrawlerBuildError"))]
-pub struct Crawler<'a, F, H>
+pub struct Crawler<F, H>
 where
     F: URLFilter,
     H: Handler,
 {
-    runtime: &'a Runtime,
     seeds: Vec<String>,
     filter: F,
     parser: Arc<URLParser<H>>,
-    rate_limiter: DomainRateLimiter<'a>,
+    rate_limiter: Arc<Mutex<DomainRateLimiter>>,
     secret_handler: Arc<H>,
 
-    #[builder(setter(strip_option))]
     max_page_num: Option<u32>,
-    #[builder(default=Some(3), setter(strip_option))]
+    #[builder(default=Some(3))]
     max_depth: Option<u32>,
     #[builder(default = false)]
     follow_redirects: bool,
-    #[builder(setter(strip_option))]
     dangerous_paths: Option<Vec<String>>,
     #[builder(default = false)]
     validate: bool,
-    #[builder(setter(strip_option))]
     proxy: Option<String>,
-    #[builder(setter(strip_option))]
     headers: Option<HeaderMap>,
     #[builder(default = Duration::from_secs(5))]
     timeout: Duration,
@@ -92,7 +92,7 @@ where
     state: CrawlerState,
 }
 
-impl<'a, Filter, H> CrawlerBuilder<'a, Filter, H>
+impl<Filter, H> CrawlerBuilder<Filter, H>
 where
     Filter: URLFilter,
     H: Handler,
@@ -110,6 +110,7 @@ where
         if let Some(Some(custom_headers)) = self.headers.as_ref() {
             headers.extend(custom_headers.clone());
         }
+        builder = builder.default_headers(headers);
         if let Some(timeout) = self.timeout {
             builder = builder.timeout(timeout);
         }
@@ -123,6 +124,11 @@ where
                 Ok(WorkerBuilder::default()
                     .client(client.clone())
                     .parser(self.parser.clone().ok_or(anyhow!("parser is required"))?)
+                    .rate_limiter(
+                        self.rate_limiter
+                            .clone()
+                            .ok_or(anyhow!("rate_limiter is required"))?,
+                    )
                     .handler(
                         self.secret_handler
                             .clone()
@@ -133,10 +139,9 @@ where
             })
             .collect::<Result<Vec<Addr<Worker<H>>>>>()
     }
-    pub fn build(self) -> Result<Crawler<'a, Filter, H>, String> {
+    pub fn build(self) -> Result<Crawler<Filter, H>, String> {
         let workers_addr = self.default_workers_addr().map_err(|e| e.to_string())?;
-        Ok(Crawler {
-            runtime: self.runtime.as_ref().ok_or("runtime is required")?,
+        let mut crawler = Crawler {
             seeds: self.seeds.ok_or("seeds is required")?,
             filter: self.filter.ok_or("filter is required")?,
             parser: self.parser.ok_or("parser is required")?,
@@ -152,18 +157,33 @@ where
             timeout: self.timeout.unwrap_or(Duration::from_secs(5)),
             workers_addr,
             state: CrawlerState::default(),
-        })
+        };
+        if let Some(dangerous_paths) = crawler.dangerous_paths {
+            let i = dangerous_paths
+                .iter()
+                .filter_map(|p| {
+                    if p.starts_with("/") {
+                        None
+                    } else {
+                        Some(format!("/{p}").to_string())
+                    }
+                })
+                .collect::<Vec<String>>();
+            crawler.dangerous_paths = Some(dangerous_paths.into_iter().chain(i).collect());
+        }
+
+        Ok(crawler)
     }
 }
 
-impl<'a, Filter, H> Crawler<'a, Filter, H>
+impl<Filter, H> Crawler<Filter, H>
 where
     Filter: URLFilter,
     H: Handler,
 {
     pub async fn run(&mut self) -> Result<()> {
         let (tx, mut rx) = mpsc::channel::<Result<ScrapeResult, String>>(MAX_INFLIGHT_TASKS);
-        let next_worker = 0;
+        let mut next_worker = 0;
 
         // queue seeds
         self.seeds.iter().try_for_each(|u| -> Result<()> {
@@ -172,43 +192,44 @@ where
                 .depth(0)
                 .build()?;
             self.filter.filter(&node.url_obj).then(|| {
-                self.state.visited_urls.insert(node.clone());
-                self.state.working_queue.push_back(node);
+                self.state.visited_urls.insert(node.url_obj.clone());
+                self.state.working_queue.push_back(node.url_obj.clone());
+                self.state.url_bucket.insert(node.url_obj.clone(), node);
             });
             Ok(())
         })?;
         loop {
             // producer
-            while !self.state.working_queue.is_empty() {
+            while let Some(url) = self.state.working_queue.pop_front() {
                 if let Some(m) = self.max_page_num
                     && self.state.page_cnt >= m
                 {
                     break;
                 }
-                let depth;
-                if let Some(url) = self.state.working_queue.pop_front() {
-                    depth = url.depth;
+                if let Some(url_node) = self.state.url_bucket.get(&url) {
                     if let Some(m) = self.max_depth
-                        && url.depth > m
+                        && url_node.depth > m
                     {
                         continue;
                     }
-                    if self.should_evade(&url) {
+                    if self.should_evade(url_node.url_obj.path()) {
                         continue;
                     }
                     let addr = self.workers_addr[next_worker % self.workers_addr.len()].clone();
                     let tx2 = tx.clone();
                     task::spawn(async move {
-                        // no shortcircuit, full Result comes into channel
                         let res: Result<ScrapeResult, String> = addr
                             .send(ScrapeMessage { url })
                             .await
                             .map_err(|e| e.to_string());
-                        let _ = tx2.send(res).await.map_err(|e| e.to_string());
-                        Ok::<(), String>(())
+                        let _ = tx2.send(res).await;
                     });
                     self.state.in_flight += 1;
                     self.state.page_cnt += 1;
+                    next_worker += 1;
+                    if self.state.in_flight >= MAX_INFLIGHT_TASKS {
+                        break;
+                    }
                 }
             }
             // end point
@@ -219,11 +240,13 @@ where
             debug!(
                 "Total:{}, Found:{}, Inflight:{} Visited:{}, Secrets:{}",
                 self.state.page_cnt,
-                self.state.found_urls.len(),
+                self.state.url_bucket.len(),
                 self.state.in_flight,
                 self.state.visited_urls.len(),
                 self.state
-                    .url_secrets.values().map(|v| v.len())
+                    .url_secrets
+                    .values()
+                    .map(|v| v.len())
                     .sum::<usize>(),
             );
             // consumer: consume one result
@@ -239,71 +262,93 @@ where
                 }
             }
         }
+        if self.validate {
+            self.validate().await?;
+        }
         Ok(())
     }
     fn consume(&mut self, result: ScrapeResult) {
+        self.state.in_flight -= 1;
         match result {
-            ScrapeResult::Ignore(url) => debug!("ignored: {}", url.url),
+            ScrapeResult::Ignore(url) => {
+                debug!("ignored: {}", url.url);
+                self.state.page_cnt -= 1;
+                if let Some(u) = self.state.url_bucket.get_mut(&url.url_obj) {
+                    u.response_status = ResponseStatus::Ignore;
+                }
+            }
             ScrapeResult::Ok(result) => {
                 enum ResultType {
                     JS,
                     Url,
                 }
-                let _ = result
+                // extend
+                result
                     .url_children
                     .into_iter()
                     .map(|u| (ResultType::Url, u))
                     .chain(result.js_children.into_iter().map(|u| (ResultType::JS, u)))
-                    .map(|(t, url)| {
-                        self.state.found_urls.insert(url.clone());
+                    .for_each(|(t, url)| {
+                        self.state
+                            .url_bucket
+                            .insert(url.url_obj.clone(), url.clone());
                         match t {
                             ResultType::Url => {
                                 self.state
                                     .urls
-                                    .entry(result.url.clone())
+                                    .entry(result.url.url_obj.clone())
                                     .or_default()
-                                    .insert(url.clone());
+                                    .insert(url.url_obj.clone());
                             }
                             ResultType::JS => {
                                 self.state
                                     .js
-                                    .entry(result.url.clone())
+                                    .entry(result.url.url_obj.clone())
                                     .or_default()
-                                    .insert(url.clone());
+                                    .insert(url.url_obj.clone());
                             }
                         }
                         let is_legal_depth = match self.max_depth {
-                            Some(m) => url.depth < m,
+                            Some(m) => url.depth <= m,
                             None => true,
                         };
                         debug!("New link found: {} from {}", url.url, result.url.url);
-                        if !self.state.visited_urls.contains(&url)
+                        if !self.state.visited_urls.contains(&url.url_obj)
                             && is_legal_depth
                             && self.filter.filter(&url.url_obj)
                         {
                             // enqueue
-                            self.state.visited_urls.insert(url.clone());
-                            self.state.working_queue.push_back(url);
+                            self.state.visited_urls.insert(url.url_obj.clone());
+                            self.state.working_queue.push_back(url.url_obj);
                         }
-                    })
-                    .collect::<Vec<_>>();
+                    });
+                // save secrets
+                self.state
+                    .url_secrets
+                    .entry(result.url.url_obj)
+                    .or_default()
+                    .extend(result.secrets);
             }
             ScrapeResult::Err(err) => match err {
                 ScrapeError::FetchError { url, err } => {
                     warn!("fail to fetch {url}: {err}");
+                    if let Some(u) = self.state.url_bucket.get_mut(&url) {
+                        u.response_status = ResponseStatus::Failed(err.to_string());
+                    }
                 }
-                ScrapeError::ProcessError(err) => {
-                    error!("process error: {err}")
+                ScrapeError::ProcessError { url, err } => {
+                    error!("process error: {err}");
+                    if let Some(u) = self.state.url_bucket.get_mut(&url) {
+                        u.response_status = ResponseStatus::Failed(err.to_string());
+                    }
                 }
             },
         }
     }
 
-    fn should_evade(&self, url: &URLNode) -> bool {
+    fn should_evade(&self, path: &str) -> bool {
         if let Some(dangerous_paths) = &self.dangerous_paths
-            && dangerous_paths.iter().any(|p| {
-                url.url_obj.path().contains(&format!("/{p}")) || url.url_obj.path().contains(p)
-            })
+            && dangerous_paths.iter().any(|p| path.contains(p))
         {
             true
         } else {
@@ -311,7 +356,79 @@ where
         }
     }
     /// Validate the status of scraped urls that are marked as unknown
-    async fn validate(&mut self) {
-        todo!("impl")
+    async fn validate(&mut self) -> Result<()> {
+        let (tx, mut rx) = mpsc::channel::<Result<FetchResult, String>>(MAX_INFLIGHT_TASKS);
+        let unknown_urls = self
+            .state
+            .url_bucket
+            .iter()
+            .filter_map(|(url, node)| {
+                if matches!(node.response_status, ResponseStatus::Unknown) {
+                    return Some(url);
+                }
+                None
+            })
+            .map(Url::clone)
+            .collect::<Vec<Url>>();
+        let mut unknown_urls = unknown_urls.iter();
+        let mut in_flight = 0usize;
+        let mut next_worker = 0usize;
+        loop {
+            for url in unknown_urls.by_ref() {
+                if self.should_evade(url.path()) {
+                    continue;
+                }
+                if in_flight >= MAX_INFLIGHT_TASKS {
+                    break;
+                }
+                let worker = self.workers_addr[next_worker % self.workers_addr.len()].clone();
+                let tx = tx.clone();
+                let url = url.clone();
+                task::spawn(async move {
+                    let res = worker
+                        .send(FetchMessage { url })
+                        .await
+                        .map_err(|e| e.to_string());
+                    let _ = tx.send(res).await.map_err(|e| e.to_string());
+                    Ok::<(), String>(())
+                });
+                in_flight += 1;
+                next_worker += 1;
+            }
+            if in_flight == 0 {
+                break;
+            }
+            // consume
+            if let Some(send_result) = rx.recv().await {
+                in_flight -= 1;
+                match send_result {
+                    Ok(result) => {
+                        match result {
+                            FetchResult::Success(result) => {
+                                self
+                                    // update
+                                    .state
+                                    .url_bucket
+                                    .entry(result.url_obj)
+                                    .and_modify(|node| {
+                                        node.response_status = result.response_status;
+                                        node.content_length = result.content_length;
+                                        node.content_type = result.content_type;
+                                        node.title = result.title;
+                                    });
+                            }
+                            FetchResult::Err(e) => {
+                                error!("validate error: {e}");
+                            }
+                        }
+                    }
+                    Err(send_err) => {
+                        panic!("dispatch scrape task error: {send_err}");
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }

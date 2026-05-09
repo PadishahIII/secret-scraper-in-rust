@@ -141,6 +141,24 @@ fn format_url_per_domain_counts_only_filtered_urls() {
 }
 
 #[test]
+fn format_url_per_domain_filters_ignored_urls() {
+    let formatter = Formatter::new(None);
+    let mut domains = HashSet::new();
+    domains.insert("example.com");
+
+    let base = node("https://example.com", ResponseStatus::Valid(200));
+    let ignored = node("https://example.com/image.png", ResponseStatus::Ignore);
+    let mut urls = HashMap::new();
+    urls.insert(base, vec![ignored]);
+
+    let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::URL));
+
+    assert!(output.contains("1 URL from example.com:"));
+    assert!(output.contains("https://example.com [200]"));
+    assert!(!output.contains("https://example.com/image.png"));
+}
+
+#[test]
 fn output_csv_writes_secret_and_hierarchy_urls() {
     let base = detailed_node(
         "https://example.com",

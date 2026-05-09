@@ -1,16 +1,21 @@
 use std::{
+    collections::BTreeMap,
     error,
     fs::File,
     io::{self, BufReader},
     path::PathBuf,
     str::FromStr,
+    time::Duration,
 };
 
 use anyhow::{Result, anyhow, bail};
 use clap::{Parser, ValueEnum};
 use pub_fields::pub_fields;
 use regex::Regex;
-use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use serde::{
+    Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap, ser::SerializeStruct,
+};
 
 #[derive(Clone, Debug, Copy, Serialize, Deserialize)]
 pub enum StatusRange {
@@ -86,11 +91,8 @@ pub struct CliConfigLayer {
     #[arg(long, help = "Max page number to crawl")]
     pub max_page: Option<u32>,
 
-    #[arg(long, help = "Max total HTTP connections")]
-    pub max_connections: Option<usize>,
-
-    #[arg(long, help = "Max keep-alive HTTP connections")]
-    pub max_keepalive_connections: Option<usize>,
+    #[arg(long, help = "Max depth to crawl, 0 means only crawl the seed urls")]
+    pub max_depth: Option<u32>,
 
     #[arg(long, help = "Max keep-alive HTTP connections per domain")]
     pub max_concurrency_per_domain: Option<usize>,
@@ -156,10 +158,23 @@ pub trait LoadFromYaml<T: DeserializeOwned> {
 
 impl LoadFromYaml<CliConfigLayer> for CliConfigLayer {}
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct FileConfigLayer {
     #[serde(flatten)]
     pub cli_options: CliConfigLayer,
+
+    pub timeout: Option<f32>,
+    pub max_concurrent_per_domain: Option<usize>,
+    pub follow_redirects: Option<bool>,
+    pub max_page_num: Option<u32>,
+    #[serde(rename = "dangerousPath")]
+    pub dangerous_paths: Option<Vec<String>>,
+    #[serde(
+        rename = "headers",
+        deserialize_with = "deserialize_optional_headers",
+        default
+    )]
+    pub custom_headers: Option<HeaderMap>,
 
     #[serde(rename = "urlFind")]
     pub url_find_rules: Vec<String>,
@@ -178,7 +193,6 @@ impl LoadFromYaml<FileConfigLayer> for FileConfigLayer {}
 /// Concrete runtime config built by merging layers.
 /// Start with [`Config::default()`], apply YAML via [`ConfigLayer`],
 /// then apply CLI via [`ConfigLayer`], and call [`Config::validate`].
-#[derive(Serialize)]
 pub struct Config {
     pub debug: bool,
     pub user_agent: Option<String>,
@@ -187,27 +201,68 @@ pub struct Config {
     pub disallow_domains: Option<Vec<String>>,
     pub url_file: Option<PathBuf>,
     pub config: Option<PathBuf>,
+    pub timeout: Duration,
     pub mode: Mode,
-    pub max_page: u32,
-    pub max_connections: usize,
-    pub max_keepalive_connections: usize,
-    pub max_concurrency_per_domain: Option<usize>,
-    pub min_request_interval: Option<f32>,
+    pub max_page: Option<u32>,
+    pub max_depth: Option<u32>,
+    pub max_concurrency_per_domain: usize,
+    pub min_request_interval: Duration,
     pub outfile: Option<PathBuf>,
     pub status_filter: Option<StatusRangeRule>,
     pub proxy: Option<String>,
     pub hide_regex: bool,
     pub follow_redirect: bool,
-    pub url: String,
+    pub dangerous_paths: Option<Vec<String>>,
+    pub url: Option<String>,
     pub detail: bool,
     pub validate: bool,
     pub local: Option<PathBuf>,
-    #[serde(rename = "urlFind")]
     pub url_find_rules: Vec<Rule>,
-    #[serde(rename = "jsFind")]
     pub js_find_rules: Vec<Rule>,
-    #[serde(rename = "rules")]
     pub custom_rules: Vec<Rule>,
+    pub custom_headers: Option<HeaderMap>,
+}
+impl Serialize for Config {
+    fn serialize<S>(&self, serializer: S) -> core::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut config = serializer.serialize_struct("Config", 29)?;
+        config.serialize_field("debug", &self.debug)?;
+        config.serialize_field("user_agent", &self.user_agent)?;
+        config.serialize_field("cookie", &self.cookie)?;
+        config.serialize_field("allow_domains", &self.allow_domains)?;
+        config.serialize_field("disallow_domains", &self.disallow_domains)?;
+        config.serialize_field("url_file", &self.url_file)?;
+        config.serialize_field("config", &self.config)?;
+        config.serialize_field("timeout", &self.timeout.as_secs_f32())?;
+        config.serialize_field("mode", &self.mode)?;
+        config.serialize_field("max_page", &self.max_page)?;
+        config.serialize_field("max_depth", &self.max_depth)?;
+        config.serialize_field(
+            "max_concurrent_per_domain",
+            &self.max_concurrency_per_domain,
+        )?;
+        config.serialize_field(
+            "min_request_interval",
+            &self.min_request_interval.as_secs_f32(),
+        )?;
+        config.serialize_field("outfile", &self.outfile)?;
+        config.serialize_field("status_filter", &self.status_filter)?;
+        config.serialize_field("proxy", &self.proxy)?;
+        config.serialize_field("hide_regex", &self.hide_regex)?;
+        config.serialize_field("follow_redirects", &self.follow_redirect)?;
+        config.serialize_field("dangerousPath", &self.dangerous_paths)?;
+        config.serialize_field("url", &self.url)?;
+        config.serialize_field("detail", &self.detail)?;
+        config.serialize_field("validate", &self.validate)?;
+        config.serialize_field("local", &self.local)?;
+        config.serialize_field("urlFind", &self.url_find_rules)?;
+        config.serialize_field("jsFind", &self.js_find_rules)?;
+        config.serialize_field("rules", &self.custom_rules)?;
+        config.serialize_field("headers", &serializable_headers(&self.custom_headers))?;
+        config.end()
+    }
 }
 pub struct Rule {
     pub name: String,
@@ -332,17 +387,19 @@ impl Default for Config {
             url_file: None,
             config: None,
             mode: Mode::Normal,
-            max_page: 100000,
-            max_connections: 100,
-            max_keepalive_connections: 50,
-            max_concurrency_per_domain: None,
-            min_request_interval: None,
+            max_page: Some(100000),
+            timeout: Duration::from_secs(30),
+            dangerous_paths: None,
+            max_depth: None,
+            custom_headers: None,
+            max_concurrency_per_domain: 50,
+            min_request_interval: Duration::from_millis(200),
             outfile: None,
             status_filter: None,
             proxy: None,
             hide_regex: false,
             follow_redirect: false,
-            url: String::new(),
+            url: None,
             detail: false,
             validate: false,
             local: None,
@@ -369,54 +426,89 @@ impl Config {
     /// Merge a [`ConfigLayer`] into this config. Only `Some` fields in the
     /// layer override the current values — `None` fields are skipped.
     pub fn apply_cli_layer(&mut self, layer: CliConfigLayer) {
-        macro_rules! set_value {
-            ($($field:ident),* ) => {
-                $(
-                    if let Some(v) = layer.$field{
-                        self.$field = v;
-                    }
-                )*
-
-            };
+        if let Some(v) = layer.debug {
+            self.debug = v;
         }
-        macro_rules! set_option {
-            ($($field:ident),* ) => {
-                $(
-                    if let Some(v) = layer.$field{
-                        self.$field = Some(v);
-                    }
-                )*
-
-            };
+        if let Some(v) = layer.user_agent {
+            self.user_agent = Some(v);
         }
-        set_value!(
-            debug,
-            mode,
-            max_page,
-            max_connections,
-            max_keepalive_connections,
-            hide_regex,
-            follow_redirect,
-            detail,
-            validate,
-            url
-        );
-        set_option!(
-            user_agent,
-            cookie,
-            allow_domains,
-            disallow_domains,
-            url_file,
-            config,
-            max_concurrency_per_domain,
-            min_request_interval,
-            outfile,
-            status_filter,
-            proxy,
-            local
-        );
+        if let Some(v) = layer.cookie {
+            self.cookie = Some(v);
+        }
+        if let Some(v) = layer.allow_domains {
+            self.allow_domains = Some(v);
+        }
+        if let Some(v) = layer.disallow_domains {
+            self.disallow_domains = Some(v);
+        }
+        if let Some(v) = layer.url_file {
+            self.url_file = Some(v);
+        }
+        if let Some(v) = layer.config {
+            self.config = Some(v);
+        }
+        if let Some(v) = layer.mode {
+            self.mode = v;
+        }
+        if let Some(v) = layer.max_page {
+            self.max_page = Some(v);
+        }
+        if let Some(v) = layer.max_depth {
+            self.max_depth = Some(v);
+        }
+        if let Some(v) = layer.max_concurrency_per_domain {
+            self.max_concurrency_per_domain = v;
+        }
+        if let Some(v) = layer.min_request_interval {
+            self.min_request_interval = Duration::from_secs_f32(v);
+        }
+        if let Some(v) = layer.outfile {
+            self.outfile = Some(v);
+        }
+        if let Some(v) = layer.status_filter {
+            self.status_filter = Some(v);
+        }
+        if let Some(v) = layer.proxy {
+            self.proxy = Some(v);
+        }
+        if let Some(v) = layer.hide_regex {
+            self.hide_regex = v;
+        }
+        if let Some(v) = layer.follow_redirect {
+            self.follow_redirect = v;
+        }
+        if let Some(v) = layer.url {
+            self.url = Some(v);
+        }
+        if let Some(v) = layer.detail {
+            self.detail = v;
+        }
+        if let Some(v) = layer.validate {
+            self.validate = v;
+        }
+        if let Some(v) = layer.local {
+            self.local = Some(v);
+        }
     }
     pub fn apply_file_layer(&mut self, layer: FileConfigLayer) -> Result<()> {
+        if let Some(v) = layer.timeout {
+            self.timeout = Duration::from_secs_f32(v);
+        }
+        if let Some(v) = layer.max_concurrent_per_domain {
+            self.max_concurrency_per_domain = v;
+        }
+        if let Some(v) = layer.follow_redirects {
+            self.follow_redirect = v;
+        }
+        if let Some(v) = layer.max_page_num {
+            self.max_page = Some(v);
+        }
+        if let Some(v) = layer.dangerous_paths {
+            self.dangerous_paths = Some(v);
+        }
+        if let Some(v) = layer.custom_headers {
+            self.custom_headers = Some(v);
+        }
         self.apply_cli_layer(layer.cli_options);
         let mut errors = vec![];
         let mut add_rules = |rules: Vec<String>, name_prefix| {
@@ -461,7 +553,8 @@ impl Config {
 
     /// Validate that required fields are present.
     pub fn validate(&self) -> Result<()> {
-        if self.url.is_empty() && self.url_file.is_none() && self.local.is_none() {
+        let has_url = self.url.as_ref().is_some_and(|url| !url.is_empty());
+        if !has_url && self.url_file.is_none() && self.local.is_none() {
             bail!("At least one of --url, --url-file, or --local must be specified".to_string(),);
         }
         Ok(())
@@ -495,6 +588,44 @@ pub fn parse_domain_filter(s: &str) -> Result<Vec<String>> {
         .filter(|e| !e.is_empty())
         .map(|e| Ok(e.to_owned()))
         .collect()
+}
+
+fn deserialize_optional_headers<'de, D>(
+    deserializer: D,
+) -> core::result::Result<Option<HeaderMap>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Option::<BTreeMap<String, String>>::deserialize(deserializer)?;
+    raw.map(headers_from_map)
+        .transpose()
+        .map_err(serde::de::Error::custom)
+}
+
+fn serializable_headers(headers: &Option<HeaderMap>) -> Option<BTreeMap<String, String>> {
+    headers.as_ref().map(|headers| {
+        headers
+            .iter()
+            .filter_map(|(name, value)| {
+                value
+                    .to_str()
+                    .ok()
+                    .map(|value| (name.as_str().to_owned(), value.to_owned()))
+            })
+            .collect()
+    })
+}
+
+fn headers_from_map(raw: BTreeMap<String, String>) -> Result<HeaderMap> {
+    let mut headers = HeaderMap::new();
+    for (name, value) in raw {
+        let header_name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|e| anyhow!("invalid header name '{name}': {e}"))?;
+        let header_value = HeaderValue::from_str(&value)
+            .map_err(|e| anyhow!("invalid header value for '{name}': {e}"))?;
+        headers.insert(header_name, header_value);
+    }
+    Ok(headers)
 }
 
 fn existing_file(s: &str) -> Result<PathBuf> {

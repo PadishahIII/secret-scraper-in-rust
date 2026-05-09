@@ -43,7 +43,7 @@ fn root_node(url: &str) -> URLNode {
 
 fn parser_without_regex() -> secret_scraper::urlparser::URLParser<EmptyHandler> {
     URLParserBuilder::default()
-        .handler(Some(EmptyHandler))
+        .handler(EmptyHandler)
         .build()
         .expect("valid parser")
 }
@@ -52,7 +52,7 @@ fn parser_with_regex(
     secrets: Vec<&'static str>,
 ) -> secret_scraper::urlparser::URLParser<StaticHandler> {
     URLParserBuilder::default()
-        .handler(Some(StaticHandler { secrets }))
+        .handler(StaticHandler { secrets })
         .build()
         .expect("valid parser")
 }

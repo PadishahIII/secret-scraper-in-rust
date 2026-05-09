@@ -1,5 +1,7 @@
+use reqwest::header::{ACCEPT, COOKIE, USER_AGENT};
 use secret_scraper::cli::*;
 use std::path::PathBuf;
+use std::time::Duration;
 
 fn fully_specified_cli_layer() -> CliConfigLayer {
     CliConfigLayer {
@@ -12,8 +14,7 @@ fn fully_specified_cli_layer() -> CliConfigLayer {
         config: Some(PathBuf::from("custom.yaml")),
         mode: Some(Mode::Thorough),
         max_page: Some(42),
-        max_connections: Some(8),
-        max_keepalive_connections: Some(4),
+        max_depth: Some(2),
         max_concurrency_per_domain: Some(16),
         min_request_interval: Some(0.5),
         outfile: Some(PathBuf::from("out.csv")),
@@ -49,11 +50,9 @@ fn assert_config_matches_fully_specified_cli(config: &Config) {
         Some(PathBuf::from("custom.yaml").as_path())
     );
     assert!(matches!(config.mode, Mode::Thorough));
-    assert_eq!(config.max_page, 42);
-    assert_eq!(config.max_connections, 8);
-    assert_eq!(config.max_keepalive_connections, 4);
-    assert_eq!(config.max_concurrency_per_domain, Some(16));
-    assert_eq!(config.min_request_interval, Some(0.5));
+    assert_eq!(config.max_page, Some(42));
+    assert_eq!(config.max_concurrency_per_domain, 16);
+    assert_eq!(config.min_request_interval, Duration::from_millis(500));
     assert_eq!(
         config.outfile.as_deref(),
         Some(PathBuf::from("out.csv").as_path())
@@ -62,7 +61,7 @@ fn assert_config_matches_fully_specified_cli(config: &Config) {
     assert_eq!(config.proxy.as_deref(), Some("http://proxy:8080"));
     assert!(config.hide_regex);
     assert!(config.follow_redirect);
-    assert_eq!(config.url, "https://cli-target.example");
+    assert_eq!(config.url.as_deref(), Some("https://cli-target.example"));
     assert!(config.detail);
     assert!(config.validate);
     assert_eq!(
@@ -101,13 +100,14 @@ fn default_config_values() {
     assert_eq!(cfg.outfile, None);
     assert_eq!(cfg.local, None);
     assert!(matches!(cfg.mode, Mode::Normal));
-    assert_eq!(cfg.max_page, 100_000);
-    assert_eq!(cfg.max_connections, 100);
-    assert_eq!(cfg.max_keepalive_connections, 50);
-    assert_eq!(cfg.max_concurrency_per_domain, None);
-    assert_eq!(cfg.min_request_interval, None);
+    assert_eq!(cfg.max_page, Some(100_000));
+    assert_eq!(cfg.max_concurrency_per_domain, 50);
+    assert_eq!(cfg.min_request_interval, Duration::from_millis(200));
     assert!(cfg.status_filter.is_none());
-    assert_eq!(cfg.url, "");
+    assert_eq!(cfg.url, None);
+    assert_eq!(cfg.max_depth, None);
+    assert_eq!(cfg.dangerous_paths, None);
+    assert!(cfg.custom_headers.is_none());
     assert!(cfg.url_find_rules.is_empty());
     assert!(cfg.js_find_rules.is_empty());
     assert!(cfg.custom_rules.is_empty());
@@ -128,8 +128,7 @@ fn default_with_rules_populated() {
     for rule in &cfg.custom_rules {
         assert!(!rule.name.is_empty());
     }
-    assert_eq!(cfg.max_page, 100_000);
-    assert_eq!(cfg.max_connections, 100);
+    assert_eq!(cfg.max_page, Some(100_000));
 }
 
 #[test]
@@ -151,11 +150,9 @@ fn cli_layer_partial_only_overrides_specified_fields() {
     };
     cfg.apply_cli_layer(cli);
     assert!(cfg.debug);
-    assert_eq!(cfg.max_page, 500);
-    assert_eq!(cfg.url, "https://partial.example");
+    assert_eq!(cfg.max_page, Some(500));
+    assert_eq!(cfg.url.as_deref(), Some("https://partial.example"));
     assert!(!cfg.follow_redirect);
-    assert_eq!(cfg.max_connections, 100);
-    assert_eq!(cfg.max_keepalive_connections, 50);
     assert_eq!(cfg.user_agent, None);
     assert_eq!(cfg.proxy, None);
     assert!(!cfg.url_find_rules.is_empty());
@@ -171,7 +168,7 @@ fn empty_cli_layer_changes_nothing() {
     assert_eq!(cfg.max_page, orig_page);
     assert_eq!(cfg.custom_rules.len(), orig_rules);
     assert!(!cfg.debug);
-    assert_eq!(cfg.url, "");
+    assert_eq!(cfg.url, None);
 }
 
 #[test]
@@ -190,7 +187,7 @@ fn cli_option_field_none_does_not_clear_existing_value() {
     });
     assert_eq!(cfg.user_agent.as_deref(), Some("first-ua"));
     assert_eq!(cfg.proxy.as_deref(), Some("first-proxy"));
-    assert_eq!(cfg.max_page, 999);
+    assert_eq!(cfg.max_page, Some(999));
 }
 
 #[test]
@@ -231,6 +228,20 @@ fn yaml_deserialization_full() {
 debug: true
 url: "https://yaml-target.example"
 max_page: 999
+timeout: 5
+max_depth: 3
+max_connections: 8
+max_keepalive_connections: 4
+max_concurrent_per_domain: 2
+min_request_interval: 0.75
+follow_redirects: true
+headers:
+  Accept: "application/json"
+  Cookie: "session=abc"
+  User-Agent: "yaml-agent"
+dangerousPath:
+  - logout
+  - delete
 urlFind:
   - "url_pattern_1"
   - "url_pattern_2"
@@ -251,6 +262,19 @@ rules:
         Some("https://yaml-target.example")
     );
     assert_eq!(layer.cli_options.max_page, Some(999));
+    assert_eq!(layer.timeout, Some(5.0));
+    assert_eq!(layer.cli_options.max_depth, Some(3));
+    assert_eq!(layer.max_concurrent_per_domain, Some(2));
+    assert_eq!(layer.cli_options.min_request_interval, Some(0.75));
+    assert_eq!(layer.follow_redirects, Some(true));
+    assert_eq!(
+        layer.dangerous_paths.as_deref(),
+        Some(&["logout".to_string(), "delete".to_string()][..])
+    );
+    let headers = layer.custom_headers.as_ref().expect("headers");
+    assert_eq!(headers.get(ACCEPT).unwrap(), "application/json");
+    assert_eq!(headers.get(COOKIE).unwrap(), "session=abc");
+    assert_eq!(headers.get(USER_AGENT).unwrap(), "yaml-agent");
     assert_eq!(layer.url_find_rules.len(), 2);
     assert_eq!(layer.url_find_rules[0], "url_pattern_1");
     assert_eq!(layer.url_find_rules[1], "url_pattern_2");
@@ -265,6 +289,54 @@ rules:
 }
 
 #[test]
+fn file_layer_applies_python_file_only_settings() {
+    let mut cfg = Config::default();
+    let yaml = yaml_layer_from_str(
+        r#"timeout: 5
+max_page_num: 321
+max_depth: 4
+max_connections: 8
+max_keepalive_connections: 4
+max_concurrent_per_domain: 2
+min_request_interval: 0.75
+follow_redirects: true
+headers:
+  Accept: "application/json"
+  Cookie: "session=abc"
+  User-Agent: "yaml-agent"
+dangerousPath:
+  - logout
+  - delete
+"#,
+    );
+
+    cfg.apply_file_layer(yaml).expect("valid");
+
+    assert_eq!(cfg.timeout, Duration::from_secs(5));
+    assert_eq!(cfg.max_page, Some(321));
+    assert_eq!(cfg.max_depth, Some(4));
+    assert_eq!(cfg.max_concurrency_per_domain, 2);
+    assert_eq!(cfg.min_request_interval, Duration::from_millis(750));
+    assert!(cfg.follow_redirect);
+    assert_eq!(
+        cfg.dangerous_paths.as_deref(),
+        Some(&["logout".to_string(), "delete".to_string()][..])
+    );
+    let headers = cfg.custom_headers.as_ref().expect("headers");
+    assert_eq!(headers.get(ACCEPT).unwrap(), "application/json");
+    assert_eq!(headers.get(COOKIE).unwrap(), "session=abc");
+    assert_eq!(headers.get(USER_AGENT).unwrap(), "yaml-agent");
+}
+
+#[test]
+fn file_layer_rejects_invalid_header_config() {
+    let yaml = "urlFind: []\njsFind: []\nheaders:\n  \"Bad Header\": value\n";
+    let r = serde_yaml::from_str::<FileConfigLayer>(yaml);
+
+    assert!(r.is_err());
+}
+
+#[test]
 fn yaml_overrides_defaults() {
     let mut cfg = Config::default();
     let yaml = yaml_layer_from_str(
@@ -275,9 +347,8 @@ max_page: 777
     );
     cfg.apply_file_layer(yaml).expect("valid");
     assert!(cfg.debug);
-    assert_eq!(cfg.url, "https://from-yaml.example");
-    assert_eq!(cfg.max_page, 777);
-    assert_eq!(cfg.max_connections, 100);
+    assert_eq!(cfg.url.as_deref(), Some("https://from-yaml.example"));
+    assert_eq!(cfg.max_page, Some(777));
     assert_eq!(cfg.user_agent, None);
 }
 
@@ -294,8 +365,8 @@ proxy: "socks5://yaml-proxy:1080"
     assert_eq!(cfg.proxy.as_deref(), Some("socks5://yaml-proxy:1080"));
     assert!(!cfg.follow_redirect);
     assert!(!cfg.hide_regex);
-    assert_eq!(cfg.max_page, 100_000);
-    assert_eq!(cfg.url, "");
+    assert_eq!(cfg.max_page, Some(100_000));
+    assert_eq!(cfg.url, None);
     assert_eq!(cfg.user_agent, None);
 }
 
@@ -370,7 +441,7 @@ rules:
     let r = cfg.apply_file_layer(yaml);
     assert!(r.is_err());
     assert!(cfg.debug);
-    assert_eq!(cfg.max_page, 555);
+    assert_eq!(cfg.max_page, Some(555));
 }
 
 #[test]
@@ -392,10 +463,9 @@ proxy: "http://yaml-proxy:3128"
     };
     cfg.apply_cli_layer(cli);
     assert!(cfg.debug);
-    assert_eq!(cfg.max_page, 999);
-    assert_eq!(cfg.url, "https://from-cli.example");
+    assert_eq!(cfg.max_page, Some(999));
+    assert_eq!(cfg.url.as_deref(), Some("https://from-cli.example"));
     assert_eq!(cfg.proxy.as_deref(), Some("http://yaml-proxy:3128"));
-    assert_eq!(cfg.max_connections, 100);
     assert!(!cfg.follow_redirect);
 }
 
@@ -414,9 +484,7 @@ max_keepalive_connections: 25
     };
     cfg.apply_cli_layer(cli);
     assert!(cfg.follow_redirect);
-    assert_eq!(cfg.max_keepalive_connections, 25);
-    assert_eq!(cfg.url, "https://target.example");
-    assert_eq!(cfg.max_connections, 100);
+    assert_eq!(cfg.url.as_deref(), Some("https://target.example"));
 }
 
 #[test]
@@ -461,13 +529,13 @@ proxy: "yaml-proxy"
     cfg.apply_cli_layer(cli);
     assert_eq!(cfg.user_agent.as_deref(), Some("yaml-ua"));
     assert_eq!(cfg.proxy.as_deref(), Some("yaml-proxy"));
-    assert_eq!(cfg.max_page, 42);
+    assert_eq!(cfg.max_page, Some(42));
 }
 
 #[test]
 fn validate_succeeds_with_url() {
     let mut cfg = Config::default();
-    cfg.url = "https://example.com".into();
+    cfg.url = Some("https://example.com".into());
     assert!(cfg.validate().is_ok());
 }
 
@@ -488,7 +556,7 @@ fn validate_succeeds_with_local() {
 #[test]
 fn validate_succeeds_with_all_inputs() {
     let mut cfg = Config::default();
-    cfg.url = "https://example.com".into();
+    cfg.url = Some("https://example.com".into());
     cfg.url_file = Some(PathBuf::from("urls.txt"));
     cfg.local = Some(PathBuf::from("/tmp/scan"));
     assert!(cfg.validate().is_ok());
@@ -497,7 +565,7 @@ fn validate_succeeds_with_all_inputs() {
 #[test]
 fn validate_fails_when_all_inputs_empty() {
     let mut cfg = Config::default();
-    cfg.url.clear();
+    cfg.url = None;
     cfg.url_file = None;
     cfg.local = None;
     let r = cfg.validate();
@@ -508,7 +576,7 @@ fn validate_fails_when_all_inputs_empty() {
 #[test]
 fn validate_fails_with_empty_url_and_no_alternatives() {
     let mut cfg = Config::default();
-    cfg.url = String::new();
+    cfg.url = Some(String::new());
     cfg.url_file = None;
     cfg.local = None;
     assert!(cfg.validate().is_err());

@@ -17,8 +17,11 @@ pub struct RegexHandler {
     rules: Vec<Rule>,
 }
 impl RegexHandler {
-    pub fn new(rules: Vec<Rule>) -> Self {
-        Self { rules }
+    pub fn new(rules: Vec<Rule>) -> Result<Self> {
+        (!rules.is_empty())
+            .then_some(())
+            .ok_or(anyhow::anyhow!("no rule specified"))?;
+        Ok(Self { rules })
     }
 }
 impl Handler for RegexHandler {

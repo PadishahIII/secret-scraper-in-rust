@@ -24,6 +24,8 @@ pub enum ResponseStatus {
     Valid(u16),
     /// invalid response status
     Failed(String),
+    /// non-text response or dangerous path
+    Ignore,
 }
 impl Display for ResponseStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -31,6 +33,7 @@ impl Display for ResponseStatus {
             ResponseStatus::Unknown => write!(f, "Unknown"),
             ResponseStatus::Valid(s) => write!(f, "{s}"),
             ResponseStatus::Failed(e) => write!(f, "Failed: {e}"),
+            ResponseStatus::Ignore => write!(f, "Ignore"),
         }
     }
 }
@@ -107,6 +110,7 @@ pub struct URLParser<H>
 where
     H: Handler,
 {
+    #[builder(setter(strip_option))]
     handler: Option<H>,
 }
 
