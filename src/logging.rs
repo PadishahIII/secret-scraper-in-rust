@@ -10,23 +10,44 @@ use tracing_subscriber::{EnvFilter, filter, fmt, prelude::*};
 
 static LOGGING_DISABLED: AtomicBool = AtomicBool::new(false);
 
-/// Initialize stdout and file tracing.
+/// Log level selected by the CLI startup path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LogLevel {
+    /// Emit warnings and errors only.
+    Warn,
+    /// Emit informational logs plus warnings and errors.
+    Info,
+}
+
+impl LogLevel {
+    fn as_filter(self) -> &'static str {
+        match self {
+            Self::Warn => "warn",
+            Self::Info => "info",
+        }
+    }
+}
+
+/// Select the CLI log level: `--verbose` enables info output, otherwise warning.
+pub fn cli_log_level(verbose: bool) -> LogLevel {
+    if verbose {
+        LogLevel::Info
+    } else {
+        LogLevel::Warn
+    }
+}
+
+/// Initialize stdout and file tracing with an explicit level.
 ///
 /// Returns a [`WorkerGuard`] that must be kept alive for non-blocking file logs
 /// to flush correctly.
-pub fn init_tracing(debug: bool) -> WorkerGuard {
+pub fn init_tracing_with_level(level: LogLevel) -> WorkerGuard {
     LOGGING_DISABLED.store(false, Ordering::SeqCst);
 
     let file_appender = tracing_appender::rolling::daily("./logs", "scraper.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
-    let filter = if debug {
-        EnvFilter::new("debug")
-    } else {
-        EnvFilter::try_from_default_env()
-            .or_else(|_| EnvFilter::try_new("info"))
-            .expect("valid filter")
-    };
+    let filter = EnvFilter::try_new(level.as_filter()).expect("valid filter");
     let shutdown_filter = filter::filter_fn(|_| !LOGGING_DISABLED.load(Ordering::SeqCst));
 
     let stdout_layer = fmt::layer()
@@ -85,5 +106,11 @@ mod tests {
             String::from_utf8(out).expect("utf8 output"),
             "Shutdown...\n"
         );
+    }
+
+    #[test]
+    fn cli_log_level_defaults_to_warn_and_verbose_enables_info() {
+        assert_eq!(cli_log_level(false), LogLevel::Warn);
+        assert_eq!(cli_log_level(true), LogLevel::Info);
     }
 }

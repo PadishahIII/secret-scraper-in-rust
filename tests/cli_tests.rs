@@ -55,6 +55,7 @@ fn no_cli_options_uses_default_config_path_and_leaves_optional_fields_empty() {
 
     assert_eq!(cli.config, PathBuf::from("setting.yaml"));
     assert_eq!(cli.debug, Some(false));
+    assert_eq!(cli.verbose, Some(false));
     assert_eq!(cli.user_agent, None);
     assert_eq!(cli.cookie, None);
     assert_eq!(cli.allow_domains, None);
@@ -79,6 +80,11 @@ fn no_cli_options_uses_default_config_path_and_leaves_optional_fields_empty() {
 #[test]
 fn parses_debug_flag() {
     assert_eq!(parse(&["--debug"]).debug, Some(true));
+}
+
+#[test]
+fn parses_verbose_flag() {
+    assert_eq!(parse(&["--verbose"]).verbose, Some(true));
 }
 
 #[test]
@@ -325,6 +331,10 @@ validate: true
 fn boolean_options_reject_explicit_values() {
     assert_eq!(
         parse_error(&["--debug", "true"]),
+        ErrorKind::UnknownArgument
+    );
+    assert_eq!(
+        parse_error(&["--verbose", "true"]),
         ErrorKind::UnknownArgument
     );
     assert_eq!(

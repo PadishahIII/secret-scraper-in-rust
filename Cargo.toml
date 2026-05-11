@@ -5,6 +5,24 @@ dev_tests = []
 name = "secret_scraper"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "CLI and library for crawling web targets, discovering links, and detecting secrets with configurable regex rules."
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/PadishahIII/secret-scraper-in-rust"
+homepage = "https://github.com/PadishahIII/secret-scraper-in-rust"
+documentation = "https://docs.rs/secret_scraper"
+keywords = ["security", "crawler", "secrets", "scanner", "cli"]
+categories = ["command-line-utilities", "web-programming"]
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/README.md",
+    "/src/**",
+    "/examples/**",
+    "/tests/**",
+]
 
 [dependencies]
 actix = "0.13.5"
@@ -17,6 +35,7 @@ derive_builder = "0.20.2"
 globset = "0.4.18"
 globwalk = "0.9.1"
 lazy_static = "1.5.0"
+num_cpus = "1.17.0"
 owo-colors = "4.3.0"
 pub-fields = "0.1.1"
 rayon = "1.12.0"

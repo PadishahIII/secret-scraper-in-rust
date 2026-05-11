@@ -100,7 +100,7 @@
 //! | `local` | `Option<PathBuf>` | File or directory for local scanning. |
 //! | `mode` | [`Mode`](cli::Mode) | `Normal` (depth 1) or `Thorough` (depth 2). |
 //! | `max_depth` | `Option<u32>` | Override crawl depth; 0 = seed URLs only. |
-//! | `max_page` | `Option<u32>` | Maximum pages to crawl (default 100,000). |
+//! | `max_page` | `Option<u32>` | Maximum pages to crawl (default 1000). |
 //! | `detail` | `bool` | Show per-URL hierarchy in output. |
 //! | `validate` | `bool` | Validate discovered link statuses. |
 //! | `follow_redirect` | `bool` | Follow HTTP redirects. |

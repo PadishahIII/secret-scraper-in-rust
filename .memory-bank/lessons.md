@@ -11,3 +11,10 @@
 - Memory: With Clap derive, `Option<bool>` plus `ArgAction::SetTrue` rejects explicit values and keeps a flag-only UX, but parsed absent flags can appear as `Some(false)`. Treat only `Some(true)` as present in `Config::apply_cli_layer`; otherwise YAML/default values must be preserved.
 - Evidence: Added `tests/cli_tests.rs` coverage for explicit value rejection and YAML preservation, then fixed `Config::apply_cli_layer` via `apply_cli_bool`; verified with `cargo fmt --check`, `cargo check`, and `cargo test`.
 - Reuse: When adding future boolean CLI flags, use `ArgAction::SetTrue`, assert `--flag true` is rejected, and merge only `Some(true)` into runtime config.
+
+## 2026-05-11 — Release hardening requires sequential Cargo verification
+
+- Context: Hardened the crate for production binary/library publication after a publish-readiness audit.
+- Memory: Run release verification sequentially, not in parallel, because concurrent Cargo commands can make doctests fail with missing transient `rlib` paths. The reliable release gate is `cargo fmt --check`, `cargo check`, `cargo check --examples`, `cargo test`, `cargo test --doc`, `cargo package --list --allow-dirty`, and `cargo publish --dry-run --allow-dirty`.
+- Evidence: Fixed `src/main.rs` panic-prone startup paths with controlled errors, added `tests/binary_tests.rs`, added `Cargo.toml` package metadata and root-relative `include`, and verified the final dry run packaged 34 files with no metadata warnings.
+- Reuse: Before publishing, run the release gate sequentially and inspect `cargo package --list` for accidental local artifacts like `.memory-bank`, editor files, generated configs, or internal plans.

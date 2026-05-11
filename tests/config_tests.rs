@@ -6,6 +6,7 @@ use std::time::Duration;
 fn fully_specified_cli_layer() -> CliConfigLayer {
     CliConfigLayer {
         debug: Some(true),
+        verbose: Some(true),
         user_agent: Some("cli-ua".into()),
         cookie: Some("cli-cookie".into()),
         allow_domains: Some(vec!["example.com".into()]),
@@ -31,6 +32,7 @@ fn fully_specified_cli_layer() -> CliConfigLayer {
 
 fn assert_config_matches_fully_specified_cli(config: &Config) {
     assert!(config.debug);
+    assert!(config.verbose);
     assert_eq!(config.user_agent.as_deref(), Some("cli-ua"));
     assert_eq!(config.cookie.as_deref(), Some("cli-cookie"));
     assert_eq!(
@@ -83,6 +85,7 @@ fn yaml_layer_from_str(yaml: &str) -> FileConfigLayer {
 fn default_config_values() {
     let cfg = Config::default();
     assert!(!cfg.debug);
+    assert!(!cfg.verbose);
     assert!(!cfg.hide_regex);
     assert!(!cfg.follow_redirect);
     assert!(!cfg.detail);
@@ -97,7 +100,7 @@ fn default_config_values() {
     assert_eq!(cfg.outfile, None);
     assert_eq!(cfg.local, None);
     assert!(matches!(cfg.mode, Mode::Normal));
-    assert_eq!(cfg.max_page, Some(100_000));
+    assert_eq!(cfg.max_page, Some(1000));
     assert_eq!(cfg.max_concurrency_per_domain, 50);
     assert_eq!(cfg.min_request_interval, Duration::from_millis(200));
     assert!(cfg.status_filter.is_none());
@@ -127,7 +130,7 @@ fn default_with_rules_populated() {
     for rule in &cfg.custom_rules {
         assert!(!rule.name.is_empty());
     }
-    assert_eq!(cfg.max_page, Some(100_000));
+    assert_eq!(cfg.max_page, Some(1000));
 }
 
 #[test]
@@ -198,6 +201,11 @@ fn cli_bool_fields_toggle_correctly() {
     });
     assert!(cfg.debug);
     cfg.apply_cli_layer(CliConfigLayer {
+        verbose: Some(true),
+        ..Default::default()
+    });
+    assert!(cfg.verbose);
+    cfg.apply_cli_layer(CliConfigLayer {
         hide_regex: Some(true),
         ..Default::default()
     });
@@ -208,6 +216,7 @@ fn cli_bool_fields_toggle_correctly() {
     });
     assert!(cfg.follow_redirect);
     assert!(cfg.debug);
+    assert!(cfg.verbose);
 }
 
 #[test]
@@ -364,7 +373,7 @@ proxy: "socks5://yaml-proxy:1080"
     assert_eq!(cfg.proxy.as_deref(), Some("socks5://yaml-proxy:1080"));
     assert!(!cfg.follow_redirect);
     assert!(!cfg.hide_regex);
-    assert_eq!(cfg.max_page, Some(100_000));
+    assert_eq!(cfg.max_page, Some(1000));
     assert_eq!(cfg.url, None);
     assert_eq!(cfg.user_agent, None);
 }

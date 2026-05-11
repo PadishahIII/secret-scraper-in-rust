@@ -1,4 +1,5 @@
 debug: false
+verbose: false
 user_agent: null
 cookie: null
 allow_domains: null
@@ -7,7 +8,7 @@ url_file: null
 config: setting.yaml
 timeout: 30.0
 mode: Normal
-max_page: 100000
+max_page: 1000
 max_depth: null
 max_concurrent_per_domain: 50
 min_request_interval: 0.2

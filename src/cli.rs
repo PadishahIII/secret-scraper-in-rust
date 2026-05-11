@@ -57,6 +57,10 @@ pub struct CliConfigLayer {
     /// Enable debug logging.
     pub debug: Option<bool>,
 
+    #[arg(long, action = ArgAction::SetTrue, help = "Enable info-level logs")]
+    /// Enable verbose info-level logging.
+    pub verbose: Option<bool>,
+
     #[arg(short = 'a', long = "ua", help = "Set User-Agent")]
     /// User-Agent header override.
     pub user_agent: Option<String>,
@@ -257,6 +261,8 @@ impl LoadFromYaml<FileConfigLayer> for FileConfigLayer {}
 pub struct Config {
     /// Enable debug logging.
     pub debug: bool,
+    /// Enable info-level logs in the CLI binary.
+    pub verbose: bool,
     /// User-Agent header override.
     pub user_agent: Option<String>,
     /// Cookie header value.
@@ -315,8 +321,9 @@ impl Serialize for Config {
     where
         S: serde::Serializer,
     {
-        let mut config = serializer.serialize_struct("Config", 29)?;
+        let mut config = serializer.serialize_struct("Config", 30)?;
         config.serialize_field("debug", &self.debug)?;
+        config.serialize_field("verbose", &self.verbose)?;
         config.serialize_field("user_agent", &self.user_agent)?;
         config.serialize_field("cookie", &self.cookie)?;
         config.serialize_field("allow_domains", &self.allow_domains)?;
@@ -484,6 +491,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             debug: false,
+            verbose: false,
             user_agent: None,
             cookie: None,
             allow_domains: None,
@@ -491,7 +499,7 @@ impl Default for Config {
             url_file: None,
             config: default_config_path(),
             mode: Mode::Normal,
-            max_page: Some(100000),
+            max_page: Some(1000),
             timeout: Duration::from_secs(30),
             dangerous_paths: None,
             max_depth: None,
@@ -537,6 +545,7 @@ impl Config {
     /// layer override the current values — `None` fields are skipped.
     pub fn apply_cli_layer(&mut self, layer: CliConfigLayer) {
         Self::apply_cli_bool(&mut self.debug, layer.debug);
+        Self::apply_cli_bool(&mut self.verbose, layer.verbose);
         if let Some(v) = layer.user_agent {
             self.user_agent = Some(v);
         }

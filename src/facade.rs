@@ -10,7 +10,12 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tokio::{runtime::Runtime, signal, sync::Mutex, task};
+use tokio::{
+    runtime::{self, Runtime},
+    signal,
+    sync::Mutex,
+    task,
+};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 
@@ -157,7 +162,13 @@ impl CrawlerFacade {
 
     /// Build a crawler facade with a cooperative shutdown token.
     pub fn with_shutdown(config: Config, shutdown: CancellationToken) -> Result<Self> {
-        let system = actix::System::new();
+        let system = actix::System::with_tokio_rt(|| {
+            runtime::Builder::new_multi_thread()
+                .worker_threads(num_cpus::get())
+                .enable_all()
+                .build()
+                .unwrap()
+        });
         let mut seeds = vec![];
         if let Some(url) = config.url {
             seeds.push(url);
@@ -301,7 +312,9 @@ impl ScanFacade for CrawlerFacade {
             .result()
             .map_err(|e| SecretScraperError::Crawler(format!("fail to get crawler result: {e}")))?;
         if let Some(f) = self.outfile {
-            let outfile_name = &self.outfile_name.unwrap();
+            let outfile_name = self.outfile_name.as_deref().ok_or_else(|| {
+                SecretScraperError::Output("outfile writer was set without an output path".into())
+            })?;
             let c = output_csv(Box::new(f), &res.urls, &res.secrets).map_err(|e| {
                 SecretScraperError::Output(format!(
                     "fail to write crawler result to file {}: {e}",

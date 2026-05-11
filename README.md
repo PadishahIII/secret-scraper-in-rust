@@ -2,7 +2,7 @@
 
 SecretScraper is a Rust CLI and library for crawling web targets, discovering URLs and JavaScript links, and detecting secrets with regular-expression rules. It can also scan local files or directories recursively.
 
-The project is not published as a public package yet. Build, run, and use it from source.
+The package is prepared for use as both a CLI binary and a Rust library. Until a crates.io release is available, build, run, and depend on it from source.
 
 ## Features
 
@@ -313,7 +313,7 @@ headers:
 | `config` | `setting.yaml` | Config file path used by the CLI. |
 | `timeout` | `30.0` | Request timeout in seconds. |
 | `mode` | `Normal` | Crawl mode preset. `Normal` uses depth 1; `Thorough` uses depth 2. |
-| `max_page` | `100000` | Maximum number of pages to crawl. |
+| `max_page` | `1000` | Maximum number of pages to crawl. |
 | `max_depth` | `null` | Optional explicit crawl depth override. `0` means seed URLs only. |
 | `max_concurrent_per_domain` | `50` | Maximum concurrent requests per domain. |
 | `min_request_interval` | `0.2` | Minimum seconds between requests to the same domain. |
@@ -365,11 +365,18 @@ YAML `urlFind`, `jsFind`, and loaded `rules` entries are appended to the existin
 
 ## Library Usage
 
-SecretScraper can be used directly from Rust code. The crate is not published yet, so depend on it by local path while developing.
+SecretScraper can be used directly from Rust code. Before the first crates.io release, depend on it by local path while developing.
 
 ```toml
 [dependencies]
 secret_scraper = { path = "../secret-scraper-in-rust" }
+```
+
+After publication, use the crates.io dependency form:
+
+```toml
+[dependencies]
+secret_scraper = "0.1"
 ```
 
 ### Crawl From Library Code
