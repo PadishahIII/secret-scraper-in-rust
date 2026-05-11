@@ -138,8 +138,7 @@ pub struct CliConfigLayer {
         short,
         long = "status",
         help = "Filter response status to display, seperated by commas, e.g. 200,300-400",
-        value_delimiter = ',',
-        value_parser = parse_status_range,
+        value_parser = parse_status_range_rule,
     )]
     /// Response status display filter.
     pub status_filter: Option<StatusRangeRule>,
@@ -528,12 +527,16 @@ impl Serialize for Rule {
 }
 
 impl Config {
+    fn apply_cli_bool(current: &mut bool, value: Option<bool>) {
+        if value == Some(true) {
+            *current = true;
+        }
+    }
+
     /// Merge a [`CliConfigLayer`] into this config. Only `Some` fields in the
     /// layer override the current values — `None` fields are skipped.
     pub fn apply_cli_layer(&mut self, layer: CliConfigLayer) {
-        if let Some(v) = layer.debug {
-            self.debug = v;
-        }
+        Self::apply_cli_bool(&mut self.debug, layer.debug);
         if let Some(v) = layer.user_agent {
             self.user_agent = Some(v);
         }
@@ -574,21 +577,13 @@ impl Config {
         if let Some(v) = layer.proxy {
             self.proxy = Some(v);
         }
-        if let Some(v) = layer.hide_regex {
-            self.hide_regex = v;
-        }
-        if let Some(v) = layer.follow_redirect {
-            self.follow_redirect = v;
-        }
+        Self::apply_cli_bool(&mut self.hide_regex, layer.hide_regex);
+        Self::apply_cli_bool(&mut self.follow_redirect, layer.follow_redirect);
         if let Some(v) = layer.url {
             self.url = Some(v);
         }
-        if let Some(v) = layer.detail {
-            self.detail = v;
-        }
-        if let Some(v) = layer.validate {
-            self.validate = v;
-        }
+        Self::apply_cli_bool(&mut self.detail, layer.detail);
+        Self::apply_cli_bool(&mut self.validate, layer.validate);
         if let Some(v) = layer.local {
             self.local = Some(v);
         }
@@ -777,6 +772,10 @@ pub fn parse_status_range(s: &str) -> Result<Vec<StatusRange>> {
             }
         })
         .collect()
+}
+
+fn parse_status_range_rule(s: &str) -> Result<StatusRangeRule> {
+    Ok(parse_status_range(s)?.into())
 }
 
 #[test]

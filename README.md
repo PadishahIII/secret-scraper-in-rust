@@ -98,16 +98,16 @@ secret_scraper --url https://example.com --mode thorough --max-depth 4
 
 ### Detail, Validation, Redirects, And Regex Output
 
-Boolean CLI options currently take explicit `true` or `false` values:
+Boolean CLI options are flags. Include the flag to enable the behavior; omit it to keep the default or YAML-configured value.
 
 ```bash
-secret_scraper --url https://example.com --detail true
-secret_scraper --url https://example.com --validate true
-secret_scraper --url https://example.com --follow-redirect true
-secret_scraper --url https://example.com --hide-regex true
+secret_scraper --url https://example.com --detail
+secret_scraper --url https://example.com --validate
+secret_scraper --url https://example.com --follow-redirect
+secret_scraper --url https://example.com --hide-regex
 ```
 
-`--validate true` sends follow-up requests for discovered links to verify HTTP status. This can add requests even for links that are not crawled because of depth limits.
+`--validate` sends follow-up requests for discovered links to verify HTTP status. This can add requests even for links that are not crawled because of depth limits.
 
 ### Domain Filters
 
