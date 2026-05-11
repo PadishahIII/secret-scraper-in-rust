@@ -27,11 +27,13 @@ pub fn init_tracing(debug: bool) -> WorkerGuard {
             .or_else(|_| EnvFilter::try_new("info"))
             .expect("valid filter")
     };
+    let shutdown_filter = filter::filter_fn(|_| !LOGGING_DISABLED.load(Ordering::SeqCst));
 
     let stdout_layer = fmt::layer()
         .with_writer(std::io::stdout)
         .with_ansi(true)
-        .compact();
+        .compact()
+        .with_filter(shutdown_filter.clone());
 
     let file_layer = fmt::layer()
         .json()
@@ -39,13 +41,11 @@ pub fn init_tracing(debug: bool) -> WorkerGuard {
         .with_ansi(false)
         .with_target(true)
         .with_file(true)
-        .with_line_number(true);
-
-    let shutdown_filter = filter::filter_fn(|_| !LOGGING_DISABLED.load(Ordering::SeqCst));
+        .with_line_number(true)
+        .with_filter(shutdown_filter);
 
     tracing_subscriber::registry()
         .with(filter)
-        .with(shutdown_filter)
         .with(stdout_layer)
         .with(file_layer)
         .init();
