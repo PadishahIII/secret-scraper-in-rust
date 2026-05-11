@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    fmt::Error,
     sync::Arc,
     thread::available_parallelism,
 };
@@ -10,19 +11,23 @@ use derive_builder::Builder;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::{Client, Proxy};
+use serde::Serialize;
 use tokio::sync::mpsc;
 use tokio::task;
 use tokio::{runtime::Runtime, sync::Mutex};
 use tracing::{debug, error, warn};
 use url::Url;
 
-use crate::scraper::{
-    bo::{FetchMessage, FetchResult},
-    worker::{Worker, WorkerBuilder},
-};
 use crate::urlparser::{URLNode, URLNodeBuilder, URLParser};
 use crate::{filter::URLFilter, handler::Handler};
 use crate::{handler::Secret, scraper::bo::ScrapeMessage};
+use crate::{
+    output::UNKNOWN_HOST,
+    scraper::{
+        bo::{FetchMessage, FetchResult},
+        worker::{Worker, WorkerBuilder},
+    },
+};
 use crate::{rate_limiter::DomainRateLimiter, scraper::bo::ScrapeResult};
 use crate::{scraper::bo::ScrapeError, urlparser::ResponseStatus};
 use derive_builder::UninitializedFieldError;
@@ -59,6 +64,95 @@ struct CrawlerState {
     page_cnt: u32,
     url_secrets: HashMap<Url, HashSet<Secret>>,
 }
+#[derive(Serialize)]
+pub struct CrawlerResult {
+    #[serde(rename = "found_hostnames")]
+    pub hosts: HashSet<URLNode>,
+    #[serde(rename = "url_hierarchy")]
+    pub urls: HashMap<URLNode, HashSet<URLNode>>,
+    #[serde(rename = "js_hierarchy")]
+    pub js: HashMap<URLNode, HashSet<URLNode>>,
+    pub secrets: HashMap<URLNode, HashSet<Secret>>,
+}
+impl AsRef<CrawlerResult> for CrawlerResult {
+    fn as_ref(&self) -> &CrawlerResult {
+        &self
+    }
+}
+impl TryFrom<CrawlerState> for CrawlerResult {
+    type Error = anyhow::Error;
+    fn try_from(value: CrawlerState) -> std::result::Result<Self, Self::Error> {
+        Ok(Self {
+            hosts: value
+                .url_bucket
+                .iter()
+                .map(|(url, _)| {
+                    URLNodeBuilder::default()
+                        .url(url.to_string())
+                        .build()
+                        .map_err(|e| anyhow!("URLNodeBuilder error: {e}"))
+                })
+                .collect::<anyhow::Result<HashSet<URLNode>>>()?,
+            urls: value
+                .urls
+                .into_iter()
+                .map(|(url, set)| {
+                    let node = value
+                        .url_bucket
+                        .get(&url)
+                        .cloned()
+                        .ok_or_else(|| anyhow!("fatal: no such entry: {url}"))?;
+                    let children = set
+                        .into_iter()
+                        .map(|u| {
+                            value
+                                .url_bucket
+                                .get(&u)
+                                .cloned()
+                                .ok_or_else(|| anyhow!("fatal: no such entry: {u}"))
+                        })
+                        .collect::<anyhow::Result<_>>()?;
+                    Ok((node, children))
+                })
+                .collect::<anyhow::Result<_>>()?,
+            js: value
+                .js
+                .into_iter()
+                .map(|(url, set)| {
+                    let node = value
+                        .url_bucket
+                        .get(&url)
+                        .cloned()
+                        .ok_or_else(|| anyhow!("fatal: no such entry: {url}"))?;
+                    let children = set
+                        .into_iter()
+                        .map(|u| {
+                            value
+                                .url_bucket
+                                .get(&u)
+                                .cloned()
+                                .ok_or_else(|| anyhow!("fatal: no such entry: {u}"))
+                        })
+                        .collect::<anyhow::Result<_>>()?;
+                    Ok((node, children))
+                })
+                .collect::<anyhow::Result<_>>()?,
+            secrets: value
+                .url_secrets
+                .into_iter()
+                .map(|(url, secrets)| {
+                    let node = value
+                        .url_bucket
+                        .get(&url)
+                        .cloned()
+                        .ok_or_else(|| anyhow!("fatal: no such entry: {url}"))?;
+                    Ok((node, secrets))
+                })
+                .collect::<anyhow::Result<_>>()?,
+        })
+    }
+}
+impl CrawlerResult {}
 #[derive(Builder)]
 #[builder(pattern = "owned", build_fn(skip, error = "CrawlerBuildError"))]
 pub struct Crawler<F, H>
@@ -266,6 +360,9 @@ where
             self.validate().await?;
         }
         Ok(())
+    }
+    pub fn result(self) -> Result<CrawlerResult> {
+        CrawlerResult::try_from(self.state)
     }
     fn consume(&mut self, result: ScrapeResult) {
         self.state.in_flight -= 1;

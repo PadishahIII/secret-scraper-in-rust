@@ -1,8 +1,8 @@
 Todo:
 - [x] Implement CLI: clap
 - [x] Implement logger via tracing
-- [ ] Implement Crawler
-    - [ ] implement options
+- [x] Implement Crawler
+    - [x] implement options
     - [ ] write tests
 - [x] Implement rate limiter
 - [x] Implement output formatter, tested

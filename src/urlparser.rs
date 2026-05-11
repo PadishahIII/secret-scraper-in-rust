@@ -5,6 +5,7 @@ use derive_builder::Builder;
 use lazy_static::lazy_static;
 use regex::Regex;
 use scraper::{Html, Selector};
+use serde::{Serialize, ser::SerializeStruct};
 use url::Url;
 
 use crate::handler::Handler;
@@ -17,7 +18,7 @@ static ref IGNORED_URL:Regex = Regex::new("\\<|\\>|\\{|\\}|\\[|\\]|\\||\\^|;|/no
 static ref WORDS: Regex = Regex::new("[a-zA-Z0-9]+").unwrap();
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ResponseStatus {
     /// the url is not requested yet
     Unknown,
@@ -38,11 +39,12 @@ impl Display for ResponseStatus {
     }
 }
 
-#[derive(Debug, Builder, Clone)]
+#[derive(Debug, Builder, Clone, Serialize)]
 #[builder(default, build_fn(skip))]
 pub struct URLNode {
     pub url: String,
     #[builder(setter(skip))]
+    #[serde(skip)]
     pub url_obj: Url,
     #[builder(default=ResponseStatus::Unknown)]
     pub response_status: ResponseStatus,

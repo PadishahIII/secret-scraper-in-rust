@@ -132,7 +132,11 @@ impl TestServer {
             let _ = ready_tx.send(());
             while !server_shutdown.load(Ordering::Relaxed) {
                 match listener.accept() {
-                    Ok((stream, _)) => handle_connection(stream, &routes, &server_log),
+                    Ok((stream, _)) => {
+                        let routes = routes.clone();
+                        let log = server_log.clone();
+                        thread::spawn(move || handle_connection(stream, &routes, &log));
+                    }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5));
                     }
@@ -268,7 +272,20 @@ fn temp_url_file(contents: &str) -> PathBuf {
 }
 
 #[test]
-fn crawler_facade_crawls_seed_and_html_children() {
+fn crawler_facade_integration_scenarios() {
+    scenario_crawls_seed_and_html_children();
+    scenario_reads_multiple_seeds_from_url_file();
+    scenario_applies_max_depth_to_discovered_links();
+    scenario_validates_found_but_not_crawled_frontier_urls();
+    scenario_skips_dangerous_paths();
+    scenario_applies_disallow_domain_filter_to_seed();
+    scenario_sends_custom_headers();
+    scenario_ignores_non_processable_content_without_crawling_body_links();
+    scenario_processes_json_with_regex_discovered_links();
+    scenario_respects_redirect_policy();
+}
+
+fn scenario_crawls_seed_and_html_children() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -284,30 +301,42 @@ fn crawler_facade_crawls_seed_and_html_children() {
     assert_eq!(server.log.count("/child"), 1);
 }
 
-#[test]
-fn crawler_facade_reads_multiple_seeds_from_url_file() {
+fn scenario_reads_multiple_seeds_from_url_file() {
     let _guard = facade_test_guard();
-    let server = TestServer::start(HashMap::from([
-        ("/seed-one".to_string(), ResponseSpec::html("one")),
-        ("/two".to_string(), ResponseSpec::html("two")),
-    ]));
+    let first_server = TestServer::start(HashMap::from([(
+        "/seed-one".to_string(),
+        ResponseSpec::html("one"),
+    )]));
+    let second_server = TestServer::start(HashMap::from([(
+        "/two".to_string(),
+        ResponseSpec::html("two"),
+    )]));
     let path = temp_url_file(&format!(
         "\n{}\n{}\n\n",
-        server.url("/seed-one"),
-        server.url("/two")
+        first_server.url("/seed-one"),
+        second_server.url("/two")
     ));
     let mut config = crawler_config(None);
     config.url_file = Some(path.clone());
 
     run_facade(config);
 
-    assert_eq!(server.log.count("/seed-one"), 1, "{:?}", server.log.paths());
-    assert_eq!(server.log.count("/two"), 1, "{:?}", server.log.paths());
+    assert_eq!(
+        first_server.log.count("/seed-one"),
+        1,
+        "{:?}",
+        first_server.log.paths()
+    );
+    assert_eq!(
+        second_server.log.count("/two"),
+        1,
+        "{:?}",
+        second_server.log.paths()
+    );
     let _ = fs::remove_file(path);
 }
 
-#[test]
-fn crawler_facade_applies_max_depth_to_discovered_links() {
+fn scenario_applies_max_depth_to_discovered_links() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -330,8 +359,7 @@ fn crawler_facade_applies_max_depth_to_discovered_links() {
     assert_eq!(server.log.count("/level-two"), 0);
 }
 
-#[test]
-fn crawler_facade_validates_found_but_not_crawled_frontier_urls() {
+fn scenario_validates_found_but_not_crawled_frontier_urls() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -350,8 +378,7 @@ fn crawler_facade_validates_found_but_not_crawled_frontier_urls() {
     assert_eq!(server.log.count("/validate-me"), 1);
 }
 
-#[test]
-fn crawler_facade_skips_dangerous_paths() {
+fn scenario_skips_dangerous_paths() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -371,8 +398,7 @@ fn crawler_facade_skips_dangerous_paths() {
     assert_eq!(server.log.count("/safe"), 1);
 }
 
-#[test]
-fn crawler_facade_applies_disallow_domain_filter_to_seed() {
+fn scenario_applies_disallow_domain_filter_to_seed() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([(
         "/".to_string(),
@@ -386,8 +412,7 @@ fn crawler_facade_applies_disallow_domain_filter_to_seed() {
     assert_eq!(server.log.total(), 0);
 }
 
-#[test]
-fn crawler_facade_sends_custom_headers() {
+fn scenario_sends_custom_headers() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([(
         "/".to_string(),
@@ -410,8 +435,7 @@ fn crawler_facade_sends_custom_headers() {
     );
 }
 
-#[test]
-fn crawler_facade_ignores_non_processable_content_without_crawling_body_links() {
+fn scenario_ignores_non_processable_content_without_crawling_body_links() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -429,8 +453,7 @@ fn crawler_facade_ignores_non_processable_content_without_crawling_body_links() 
     assert_eq!(server.log.count("/hidden"), 0);
 }
 
-#[test]
-fn crawler_facade_processes_json_with_regex_discovered_links() {
+fn scenario_processes_json_with_regex_discovered_links() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -448,8 +471,7 @@ fn crawler_facade_processes_json_with_regex_discovered_links() {
     assert_eq!(server.log.count("/from-json"), 1, "{:?}", server.log.paths());
 }
 
-#[test]
-fn crawler_facade_respects_redirect_policy() {
+fn scenario_respects_redirect_policy() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (

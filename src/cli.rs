@@ -83,7 +83,7 @@ pub struct CliConfigLayer {
     #[arg(
         short = 'm',
         long,
-        help = "Set crawl mode, '1' for max_depth=1, '2' for max_depth=2",
+        help = "Set crawl mode, 'normal' for max_depth=1, 'thorough' for max_depth=2, default to 'normal'",
         value_enum
     )]
     pub mode: Option<Mode>,
@@ -563,10 +563,8 @@ impl Config {
 
 #[derive(Debug, ValueEnum, Clone, Serialize, Deserialize, Default)]
 pub enum Mode {
-    #[value(name = "1")]
     #[default]
     Normal,
-    #[value(name = "2")]
     Thorough,
 }
 

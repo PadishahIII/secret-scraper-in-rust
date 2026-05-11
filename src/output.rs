@@ -4,6 +4,7 @@ use std::{
     io,
     path::PathBuf,
 };
+use url::Url;
 
 use crate::{
     cli::StatusRangeRule,
@@ -15,7 +16,7 @@ use anyhow::Result;
 use csv::Writer;
 use owo_colors::OwoColorize;
 
-static UNKNOWN_HOST: &str = "UNKNOWN_HOST";
+pub static UNKNOWN_HOST: &str = "UNKNOWN_HOST";
 pub enum URLType {
     URL,
     JS,
@@ -68,32 +69,34 @@ impl Formatter {
         )
         .to_string()
     }
-    pub fn format_found_domains(&self, found_urls: &[URLNode]) -> String {
-        let urls_str = found_urls
-            .iter()
-            .map(|node| {
-                let mut s = node.url_obj.host_str().unwrap_or(UNKNOWN_HOST).to_string();
-                match node.url_obj.port_or_known_default() {
-                    None => {}
-                    Some(p) => {
-                        s.push(':');
-                        s.push_str(p.to_string().as_ref());
-                    }
-                }
-                s
-            })
-            .collect::<HashSet<String>>()
+    pub fn url_to_domain(&self, node: &URLNode) -> String {
+        let mut s = node.url_obj.host_str().unwrap_or(UNKNOWN_HOST).to_string();
+        match node.url_obj.port_or_known_default() {
+            None => {}
+            Some(p) => {
+                s.push(':');
+                s.push_str(p.to_string().as_ref());
+            }
+        }
+        s
+    }
+    pub fn found_domains(&self, found_urls: Vec<&URLNode>) -> HashSet<String> {
+        found_urls
             .into_iter()
-            .collect::<Vec<String>>()
-            .join("\n");
+            .map(|node| self.url_to_domain(node))
+            .collect::<HashSet<String>>()
+    }
+    pub fn format_found_domains(&self, domains: HashSet<String>) -> String {
+        let len = domains.len();
+        let urls_str = domains.into_iter().collect::<Vec<String>>().join("\n");
         format!(
             "{num} Domains:\n{urls}\n",
-            num = found_urls.len(),
+            num = len,
             urls = self.format_normal_result(&urls_str)
         )
         .to_string()
     }
-    pub fn format_url_hierarchy(&self, urls: &HashMap<URLNode, Vec<URLNode>>) -> String {
+    pub fn format_url_hierarchy(&self, urls: &HashMap<URLNode, HashSet<URLNode>>) -> String {
         urls.iter()
             .map(|(base_url, child_urls)| {
                 let children = child_urls
@@ -115,8 +118,8 @@ impl Formatter {
     }
     pub fn format_url_per_domain(
         &self,
-        domains: &HashSet<&str>,
-        urls: &HashMap<URLNode, Vec<URLNode>>,
+        domains: &HashSet<String>,
+        urls: &HashMap<URLNode, HashSet<URLNode>>,
         url_type: URLType,
     ) -> String {
         let root_domains = domains
@@ -171,7 +174,7 @@ impl Formatter {
             .collect::<Vec<String>>()
             .join("\n")
     }
-    pub fn format_js(&self, js_urls: &HashMap<URLNode, &Vec<URLNode>>) -> String {
+    pub fn format_js(&self, js_urls: &HashMap<URLNode, HashSet<URLNode>>) -> String {
         js_urls
             .iter()
             .map(|(base_url, child_urls)| {
@@ -191,7 +194,7 @@ impl Formatter {
             .collect::<Vec<String>>()
             .join("\n")
     }
-    pub fn format_secrets(&self, url_secrets: &HashMap<URLNode, &Vec<Secret>>) -> String {
+    pub fn format_secrets(&self, url_secrets: &HashMap<URLNode, HashSet<Secret>>) -> String {
         let res = url_secrets
             .iter()
             .filter_map(|(url, secrets)| {
@@ -274,8 +277,8 @@ fn get_root_domain(host: &str) -> Option<String> {
 }
 pub fn output_csv(
     outfile: Box<dyn io::Write>,
-    urls: &HashMap<URLNode, &Vec<URLNode>>,
-    url_secrets: &HashMap<URLNode, &Vec<Secret>>,
+    urls: &HashMap<URLNode, HashSet<URLNode>>,
+    url_secrets: &HashMap<URLNode, HashSet<Secret>>,
 ) -> Result<u32> {
     let mut writer = Writer::from_writer(outfile);
     let mut count = 0;
@@ -314,8 +317,8 @@ pub fn output_csv(
             ])?;
             count += 1;
         }
-        for url in *children {
-            if url_secrets.get(url).is_none() {
+        for url in children {
+            if url_secrets.get(&url).is_none() {
                 writer.write_record([
                     url.url.to_owned(),
                     url.title.clone().unwrap_or_default(),
