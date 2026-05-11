@@ -6,12 +6,12 @@ allow_domains: null
 disallow_domains: null
 url_file: null
 config: setting.yaml
-timeout: 30.0
+timeout: 5.0
 mode: Normal
 max_page: 1000
 max_depth: null
-max_concurrent_per_domain: 50
-min_request_interval: 0.2
+max_concurrent_per_domain: 5
+min_request_interval: 0.1
 outfile: null
 status_filter: null
 proxy: null

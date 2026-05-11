@@ -175,9 +175,10 @@ impl<H: Handler> URLParser<H> {
             }
         }
         for mut href in hrefs {
-            if let Ok(h) = decode(&href) {
-                href = h.into_owned();
-            }
+            // TODO: disable temporarily to compare performance
+            // if let Ok(h) = decode(&href) {
+            //     href = h.into_owned();
+            // }
             match Url::parse(&href) {
                 Ok(url) => {
                     if is_static_resource(url.path()) {
