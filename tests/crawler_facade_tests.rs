@@ -19,6 +19,7 @@ use secret_scraper::{
     facade::{CrawlerFacade, ScanFacade, ScanResult},
     urlparser::ResponseStatus,
 };
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 struct ResponseSpec {
@@ -256,13 +257,17 @@ fn run_facade(config: Config) {
 }
 
 fn run_facade_and_return(config: Config) -> ScanResult {
+    run_facade_with_shutdown_and_return(config, CancellationToken::new())
+}
+
+fn run_facade_with_shutdown_and_return(config: Config, shutdown: CancellationToken) -> ScanResult {
     assert!(!config.url_find_rules.is_empty(), "url rules should be set");
     assert!(
         !config.custom_rules.is_empty(),
         "custom rules should be set"
     );
     thread::spawn(move || -> ScanResult {
-        Box::new(CrawlerFacade::new(config).expect("crawler facade"))
+        Box::new(CrawlerFacade::with_shutdown(config, shutdown).expect("crawler facade"))
             .scan()
             .expect("scan crawler facade")
     })
@@ -604,4 +609,25 @@ fn scenario_max_page_counts_ignored_responses() {
         "{:?}",
         server.log.paths()
     );
+}
+
+#[test]
+fn crawler_facade_shutdown_before_start_returns_partial_result_without_fetches() {
+    let _guard = facade_test_guard();
+    let server = TestServer::start(HashMap::from([(
+        "/root".to_string(),
+        ResponseSpec::html(r#"<a href="/child">child</a>"#),
+    )]));
+    let shutdown = CancellationToken::new();
+    shutdown.cancel();
+
+    let result =
+        run_facade_with_shutdown_and_return(crawler_config(Some(server.url("/root"))), shutdown);
+
+    assert_eq!(server.log.total(), 0, "{:?}", server.log.paths());
+    let ScanResult::CrawlResult(result) = result else {
+        panic!("expected crawl result");
+    };
+    assert!(result.urls.is_empty());
+    assert!(result.secrets.is_empty());
 }

@@ -6,8 +6,9 @@ use std::{
 
 use secret_scraper::{
     cli::{Config, Rule},
-    facade::{FileScannerFacade, ScanFacade},
+    facade::{FileScannerFacade, ScanFacade, ScanResult},
 };
+use tokio_util::sync::CancellationToken;
 
 fn test_path(name: &str) -> PathBuf {
     let mut path = std::env::temp_dir();
@@ -32,9 +33,13 @@ fn scanner_config(local: PathBuf, outfile: PathBuf) -> Config {
 }
 
 fn run_file_facade(config: Config) {
-    Box::new(FileScannerFacade::new(config).expect("file scanner facade"))
+    let _ = run_file_facade_with_shutdown(config, CancellationToken::new());
+}
+
+fn run_file_facade_with_shutdown(config: Config, shutdown: CancellationToken) -> ScanResult {
+    Box::new(FileScannerFacade::with_shutdown(config, shutdown).expect("file scanner facade"))
         .scan()
-        .expect("scan file facade");
+        .expect("scan file facade")
 }
 
 fn read_output(path: &Path) -> String {
@@ -125,5 +130,29 @@ fn file_scanner_facade_truncates_existing_output_file() {
     assert!(!yaml.contains("SECRET_OLD"), "{yaml}");
 
     let _ = fs::remove_file(input);
+    let _ = fs::remove_file(output);
+}
+
+#[test]
+fn file_scanner_facade_shutdown_before_start_writes_empty_partial_result() {
+    let root = test_path("shutdown-dir");
+    fs::create_dir_all(&root).expect("create shutdown dir");
+    let first = root.join("first.txt");
+    let output = test_path("shutdown-output.yml");
+    fs::write(&first, "SECRET_FIRST").expect("write first file");
+    let shutdown = CancellationToken::new();
+    shutdown.cancel();
+
+    let result =
+        run_file_facade_with_shutdown(scanner_config(root.clone(), output.clone()), shutdown);
+
+    let ScanResult::LocalScanResult(result) = result else {
+        panic!("expected local scan result");
+    };
+    assert!(result.is_empty(), "expected no files to be scanned");
+    let yaml = read_output(&output);
+    assert!(!yaml.contains("SECRET_FIRST"), "{yaml}");
+
+    let _ = fs::remove_dir_all(root);
     let _ = fs::remove_file(output);
 }

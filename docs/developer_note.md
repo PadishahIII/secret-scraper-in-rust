@@ -12,6 +12,6 @@ Todo:
 - [x] Add examples
 - [x] Resolve lint warnings
 - [x] Update doc
-- [ ] Implement graceful shutdown
+- [x] Implement graceful shutdown
 - [ ] Test performance and compare with the python version; use `time` tool
 - [ ] Publish

@@ -10,7 +10,8 @@ use std::{
     path::PathBuf,
     sync::Arc,
 };
-use tokio::{runtime::Runtime, sync::Mutex};
+use tokio::{runtime::Runtime, signal, sync::Mutex, task};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 
 use globwalk::GlobWalkerBuilder;
@@ -49,10 +50,16 @@ pub struct FileScannerFacade<'a> {
     scanner: FileScanner<PathBuf, RegexHandler>,
     formatter: Formatter,
     outfile: Box<dyn io::Write + Send + 'a>,
+    shutdown: CancellationToken,
 }
 impl<'a> FileScannerFacade<'a> {
     /// Build a local file scanner facade from [`Config`].
     pub fn new(config: Config) -> Result<Self> {
+        Self::with_shutdown(config, CancellationToken::new())
+    }
+
+    /// Build a local file scanner facade with a cooperative shutdown token.
+    pub fn with_shutdown(config: Config, shutdown: CancellationToken) -> Result<Self> {
         let base = config
             .local
             .as_ref()
@@ -79,20 +86,27 @@ impl<'a> FileScannerFacade<'a> {
                 .map(|f| f.path().to_path_buf())
                 .collect()
         };
-        let scanner = FileScanner::new(targets, handler);
+        let scanner = FileScanner::with_shutdown(targets, handler, shutdown.clone());
         Ok(Self {
             scanner,
             formatter: Formatter::new(config.status_filter),
             outfile: out,
+            shutdown,
         })
     }
 }
 #[async_trait]
 impl<'a> ScanFacade for FileScannerFacade<'a> {
     fn scan(mut self: Box<Self>) -> ScanStdResult {
+        let shutdown = self.shutdown.clone();
         Runtime::new()
             .map_err(|e| SecretScraperError::Runtime(format!("fail to create tokio runtime: {e}")))?
             .block_on(async {
+                task::spawn(async move {
+                    if signal::ctrl_c().await.is_ok() {
+                        shutdown.cancel();
+                    }
+                });
                 match self.scanner.scan().await {
                     Ok(res) => {
                         tracing::info!("Secrets: {}", self.formatter.format_local_secrets(&res));
@@ -126,10 +140,18 @@ pub struct CrawlerFacade {
     // display options
     hide_regex: bool,
     show_detail: bool,
+
+    shutdown: CancellationToken,
+    task_tracker: Arc<TaskTracker>,
 }
 impl CrawlerFacade {
     /// Build a crawler facade from [`Config`].
     pub fn new(config: Config) -> Result<Self> {
+        Self::with_shutdown(config, CancellationToken::new())
+    }
+
+    /// Build a crawler facade with a cooperative shutdown token.
+    pub fn with_shutdown(config: Config, shutdown: CancellationToken) -> Result<Self> {
         let system = actix::System::new();
         let mut seeds = vec![];
         if let Some(url) = config.url {
@@ -206,6 +228,10 @@ impl CrawlerFacade {
             None
         };
 
+        let shutdown_clone = shutdown.clone();
+        let task_tracker = Arc::new(TaskTracker::new());
+        let tracker_clone = task_tracker.clone();
+
         let crawler = system.block_on(async move {
             CrawlerBuilder::default()
                 .seeds(seeds)
@@ -229,6 +255,8 @@ impl CrawlerFacade {
                 .proxy(config.proxy)
                 .headers(Some(headers))
                 .timeout(config.timeout)
+                .shutdown(shutdown_clone)
+                .task_tracker(tracker_clone)
                 .build()
                 .map_err(|e| anyhow!("fail to build crawler: {e}"))
         })?;
@@ -237,6 +265,8 @@ impl CrawlerFacade {
             crawler,
             outfile,
             outfile_name,
+            shutdown,
+            task_tracker,
             formatter: Formatter::new(config.status_filter),
             hide_regex: config.hide_regex,
             show_detail: config.detail,
@@ -246,7 +276,16 @@ impl CrawlerFacade {
 #[async_trait]
 impl ScanFacade for CrawlerFacade {
     fn scan(mut self: Box<Self>) -> ScanStdResult {
+        let shutdown = self.shutdown.clone();
+        let tracker = self.task_tracker.clone();
         self.system.block_on(async {
+            task::spawn(async move {
+                if signal::ctrl_c().await.is_ok() {
+                    shutdown.cancel();
+                    tracker.close();
+                    tracker.wait().await;
+                }
+            });
             self.crawler
                 .run()
                 .await

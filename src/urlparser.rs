@@ -9,6 +9,7 @@ use regex::Regex;
 use scraper::{Html, Selector};
 use serde::Serialize;
 use url::Url;
+use urlencoding::decode;
 
 use crate::handler::Handler;
 
@@ -173,7 +174,10 @@ impl<H: Handler> URLParser<H> {
                 hrefs.insert(href.to_string());
             }
         }
-        for href in hrefs {
+        for mut href in hrefs {
+            if let Ok(h) = decode(&href) {
+                href = h.into_owned();
+            }
             match Url::parse(&href) {
                 Ok(url) => {
                     if is_static_resource(url.path()) {

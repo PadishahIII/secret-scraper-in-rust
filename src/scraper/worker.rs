@@ -134,7 +134,10 @@ impl<H: Handler> Worker<H> {
         url.response_status = ResponseStatus::Valid(resp.status().as_u16());
         url.content_length = resp.content_length();
         let html = resp.text().await.map_err(|e| {
-            ScrapeError::process_error(url.url_obj.clone(), format!("receive response body: {e}"))
+            ScrapeError::process_error(
+                url.url_obj.clone(),
+                format!("{} receive response body: {e}", &url.url),
+            )
         })?;
         if let Some(ct) = &url.content_type
             && is_html(ct)
@@ -158,7 +161,10 @@ impl<H: Handler> Worker<H> {
         self.parser
             .extract_urls(url, &html)
             .map_err(|e| {
-                ScrapeError::process_error(url.url_obj.clone(), format!("extract urls: {e}"))
+                ScrapeError::process_error(
+                    url.url_obj.clone(),
+                    format!("{} extract urls: {e}", &url.url),
+                )
             })?
             .into_iter()
             .for_each(|u| {
@@ -180,11 +186,14 @@ impl<H: Handler> Worker<H> {
             .map_err(|e| {
                 ScrapeError::process_error(
                     url.url_obj.clone(),
-                    format!("rayon task cancelled: {e}"),
+                    format!("{} rayon task cancelled: {e}", &url.url),
                 )
             })?
             .map_err(|e| {
-                ScrapeError::process_error(url.url_obj.clone(), format!("extract secrets: {e}"))
+                ScrapeError::process_error(
+                    url.url_obj.clone(),
+                    format!("{} extract secrets: {e}", &url.url),
+                )
             })?;
 
         Ok(ScrapeInnerResult::Normal(ScrapeArtifacts {

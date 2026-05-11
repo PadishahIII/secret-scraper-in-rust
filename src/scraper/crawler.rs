@@ -15,7 +15,8 @@ use reqwest::{Client, Proxy};
 use serde::Serialize;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
-use tokio::task;
+use tokio::{task, time};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{debug, error, info, warn};
 use url::Url;
 
@@ -33,6 +34,7 @@ use std::time::Duration;
 
 static MAX_INFLIGHT_TASKS: usize = 256;
 static MAX_REDIRECT: usize = 5;
+static SHUTDOWN_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Error returned while building a [`Crawler`].
 #[derive(Debug)]
@@ -176,6 +178,9 @@ where
     rate_limiter: Arc<Mutex<DomainRateLimiter>>,
     secret_handler: Arc<H>,
 
+    shutdown: CancellationToken,
+    task_tracker: Arc<TaskTracker>,
+
     max_page_num: Option<u32>,
     #[builder(default=Some(3))]
     max_depth: Option<u32>,
@@ -248,6 +253,10 @@ where
             parser: self.parser.ok_or("parser is required")?,
             rate_limiter: self.rate_limiter.ok_or("rate_limiter is required")?,
             secret_handler: self.secret_handler.ok_or("handler is required")?,
+            shutdown: self.shutdown.unwrap_or_default(),
+            task_tracker: self
+                .task_tracker
+                .unwrap_or_else(|| Arc::new(TaskTracker::new())),
             max_page_num: self.max_page_num.flatten(),
             max_depth: self.max_depth.flatten().or(Some(3)),
             follow_redirects: self.follow_redirects.unwrap_or(false),
@@ -289,6 +298,9 @@ where
 
         // queue seeds
         self.seeds.iter().try_for_each(|u| -> Result<()> {
+            if self.shutdown.is_cancelled() {
+                return Ok(());
+            }
             let node = URLNodeBuilder::default()
                 .url(u.to_string())
                 .depth(0)
@@ -302,7 +314,10 @@ where
         })?;
         loop {
             // producer
-            while let Some(url) = self.state.working_queue.pop_front() {
+            while !self.shutdown.is_cancelled() {
+                let Some(url) = self.state.working_queue.pop_front() else {
+                    break;
+                };
                 if let Some(m) = self.max_page_num
                     && self.state.page_cnt >= m
                 {
@@ -319,7 +334,7 @@ where
                     }
                     let addr = self.workers_addr[next_worker % self.workers_addr.len()].clone();
                     let tx2 = tx.clone();
-                    task::spawn(async move {
+                    self.task_tracker.spawn(async move {
                         let res: Result<ScrapeResult, String> = addr
                             .send(ScrapeMessage { url })
                             .await
@@ -339,7 +354,9 @@ where
                 .max_page_num
                 .is_some_and(|max_page| self.state.page_cnt >= max_page);
             if self.state.in_flight == 0
-                && (self.state.working_queue.is_empty() || reached_page_limit)
+                && (self.state.working_queue.is_empty()
+                    || reached_page_limit
+                    || self.shutdown.is_cancelled())
             {
                 break;
             }
@@ -357,7 +374,15 @@ where
                     .sum::<usize>(),
             );
             // consumer: consume one result
-            if let Some(send_result) = rx.recv().await {
+            let next_result = if self.shutdown.is_cancelled() {
+                match time::timeout(SHUTDOWN_DRAIN_TIMEOUT, rx.recv()).await {
+                    Ok(result) => result,
+                    Err(_) => break,
+                }
+            } else {
+                rx.recv().await
+            };
+            if let Some(send_result) = next_result {
                 match send_result {
                     Ok(result) => {
                         // record result and extend
@@ -369,7 +394,7 @@ where
                 }
             }
         }
-        if self.validate {
+        if self.validate && !self.shutdown.is_cancelled() {
             self.validate().await?;
         }
         Ok(())
@@ -499,6 +524,9 @@ where
         let mut next_worker = 0usize;
         loop {
             for url in unknown_urls.by_ref() {
+                if self.shutdown.is_cancelled() {
+                    break;
+                }
                 if self.should_evade(url.path()) {
                     if let Some(node) = self.state.url_bucket.get_mut(url) {
                         node.response_status = ResponseStatus::Ignore;
@@ -526,7 +554,15 @@ where
                 break;
             }
             // consume
-            if let Some(send_result) = rx.recv().await {
+            let next_result = if self.shutdown.is_cancelled() {
+                match time::timeout(SHUTDOWN_DRAIN_TIMEOUT, rx.recv()).await {
+                    Ok(result) => result,
+                    Err(_) => break,
+                }
+            } else {
+                rx.recv().await
+            };
+            if let Some(send_result) = next_result {
                 in_flight -= 1;
                 match send_result {
                     Ok(result) => {

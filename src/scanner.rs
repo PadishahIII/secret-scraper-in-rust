@@ -9,10 +9,8 @@ use std::{
 };
 
 use anyhow::Result;
-use tokio::{
-    fs::{self},
-    task,
-};
+use tokio::{fs, task};
+use tokio_util::sync::CancellationToken;
 
 use crate::handler::{Handler, Secret};
 
@@ -24,6 +22,7 @@ where
 {
     targets: Vec<T>,
     handler: Arc<H>,
+    shutdown: CancellationToken,
 }
 impl<T, H> FileScanner<T, H>
 where
@@ -31,17 +30,26 @@ where
     H: Handler + Send + Sync,
 {
     /// Create a scanner for `targets` using `handler`.
+    #[allow(dead_code)]
     pub fn new(targets: Vec<T>, handler: H) -> Self {
+        Self::with_shutdown(targets, handler, CancellationToken::new())
+    }
+
+    /// Create a scanner for `targets` using `handler` and a shutdown token.
+    pub fn with_shutdown(targets: Vec<T>, handler: H, shutdown: CancellationToken) -> Self {
         Self {
             targets,
             handler: Arc::new(handler),
+            shutdown,
         }
     }
     /// Scan all targets and return detected secrets keyed by target.
     pub async fn scan(&self) -> Result<HashMap<&'_ T, HashSet<Secret>>> {
-        let mut out: HashMap<&T, HashSet<Secret>> =
-            HashMap::from_iter(self.targets.iter().map(|target| (target, HashSet::new())));
+        let mut out: HashMap<&T, HashSet<Secret>> = HashMap::new();
         for target in &self.targets {
+            if self.shutdown.is_cancelled() {
+                break;
+            }
             let content = fs::read_to_string(target.borrow()).await?;
             let handler = self.handler.clone();
             let secrets = task::spawn_blocking(move || handler.handle(&content)).await??;

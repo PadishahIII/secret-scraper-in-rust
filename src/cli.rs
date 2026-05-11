@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{Result, anyhow, bail};
-use clap::{Parser, ValueEnum};
+use clap::{ArgAction, Parser, ValueEnum};
 use pub_fields::pub_fields;
 use regex::Regex;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderName, HeaderValue, USER_AGENT};
@@ -53,7 +53,7 @@ impl From<Vec<StatusRange>> for StatusRangeRule {
 #[derive(Debug, Default, Deserialize, Serialize, Parser)]
 #[command(version, about)]
 pub struct CliConfigLayer {
-    #[arg(long, help = "Enable debug")]
+    #[arg(long, action = ArgAction::SetTrue, help = "Enable debug")]
     /// Enable debug logging.
     pub debug: Option<bool>,
 
@@ -149,11 +149,16 @@ pub struct CliConfigLayer {
     /// Proxy URL.
     pub proxy: Option<String>,
 
-    #[arg(short = 'H', long, help = "Hide regex search result")]
+    #[arg(
+        short = 'H',
+        long,
+        action = ArgAction::SetTrue,
+        help = "Hide regex search result"
+    )]
     /// Hide regex/secret output.
     pub hide_regex: Option<bool>,
 
-    #[arg(short = 'F', long, help = "Follow redirects")]
+    #[arg(short = 'F', long, action = ArgAction::SetTrue, help = "Follow redirects")]
     /// Follow HTTP redirects.
     pub follow_redirect: Option<bool>,
 
@@ -161,11 +166,15 @@ pub struct CliConfigLayer {
     /// Single crawl seed URL.
     pub url: Option<String>,
 
-    #[arg(long, help = "Show detailed result")]
+    #[arg(long, action = ArgAction::SetTrue, help = "Show detailed result")]
     /// Show detailed output.
     pub detail: Option<bool>,
 
-    #[arg(long, help = "Validate the status of found urls")]
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Validate the status of found urls"
+    )]
     /// Validate discovered link statuses.
     pub validate: Option<bool>,
 

@@ -1,4 +1,4 @@
-debug: true
+debug: false
 user_agent: null
 cookie: null
 allow_domains: null

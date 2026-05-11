@@ -111,7 +111,7 @@ fn resolves_root_relative_urls_against_base_origin() {
 
     let urls = extract_urls(&parser, &base, html);
 
-    assert_urls_eq(urls, &["https://random.com/login?next=%2Fdashboard#top"]);
+    assert_urls_eq(urls, &["https://random.com/login?next=/dashboard#top"]);
 }
 
 #[test]
