@@ -1,6 +1,12 @@
+//! Logging and tracing setup.
+
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
+/// Initialize stdout and file tracing.
+///
+/// Returns a [`WorkerGuard`] that must be kept alive for non-blocking file logs
+/// to flush correctly.
 pub fn init_tracing(debug: bool) -> WorkerGuard {
     let file_appender = tracing_appender::rolling::daily("./logs", "scraper.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);

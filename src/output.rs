@@ -1,3 +1,5 @@
+//! Formatting and CSV output helpers.
+
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
@@ -15,9 +17,13 @@ use anyhow::Result;
 use csv::Writer;
 use owo_colors::OwoColorize;
 
+/// Placeholder used when a URL has no host component.
 pub static UNKNOWN_HOST: &str = "UNKNOWN_HOST";
+/// URL hierarchy kind to render.
 pub enum URLType {
+    /// Regular discovered URL hierarchy.
     Url,
+    /// JavaScript URL hierarchy.
     JS,
 }
 impl AsRef<str> for URLType {
@@ -37,22 +43,27 @@ impl Display for URLType {
     }
 }
 
+/// Human-readable formatter for crawler and local scan output.
 pub struct Formatter {
     allowed_status: Option<StatusRangeRule>,
 }
 impl Formatter {
+    /// Create a formatter with an optional response status filter.
     pub fn new(allowed_status: Option<StatusRangeRule>) -> Self {
         Self { allowed_status }
     }
+    /// Format a response status with terminal color styling.
     pub fn format_status(&self, status: &ResponseStatus) -> String {
         format!("{status}").on_red().to_string()
     }
+    /// Format normal content with terminal color styling.
     pub fn format_normal_result(&self, content: &str) -> String {
         if content.is_empty() {
             return "".to_string();
         }
         content.bright_blue().to_string()
     }
+    /// Format one URL node for human-readable output.
     pub fn format_single_url(&self, url: &URLNode) -> String {
         format!(
             "{url} [{status}] [Content-Length: {cl}] [Content-Type: {ct}] [Title: {title}]",
@@ -68,6 +79,7 @@ impl Formatter {
         )
         .to_string()
     }
+    /// Convert a URL node to its host or host:port display domain.
     pub fn url_to_domain(&self, node: &URLNode) -> String {
         let mut s = node.url_obj.host_str().unwrap_or(UNKNOWN_HOST).to_string();
         match node.url_obj.port_or_known_default() {
@@ -79,12 +91,14 @@ impl Formatter {
         }
         s
     }
+    /// Collect display domains from URL nodes.
     pub fn found_domains(&self, found_urls: Vec<&URLNode>) -> HashSet<String> {
         found_urls
             .into_iter()
             .map(|node| self.url_to_domain(node))
             .collect::<HashSet<String>>()
     }
+    /// Format the discovered domain set.
     pub fn format_found_domains(&self, domains: HashSet<String>) -> String {
         let len = domains.len();
         let urls_str = domains.into_iter().collect::<Vec<String>>().join("\n");
@@ -95,6 +109,7 @@ impl Formatter {
         )
         .to_string()
     }
+    /// Format URL parent-child relationships.
     pub fn format_url_hierarchy(&self, urls: &HashMap<URLNode, HashSet<URLNode>>) -> String {
         urls.iter()
             .map(|(base_url, child_urls)| {
@@ -115,6 +130,7 @@ impl Formatter {
             .collect::<Vec<String>>()
             .join("\n")
     }
+    /// Format URLs grouped by root domain.
     pub fn format_url_per_domain(
         &self,
         domains: &HashSet<String>,
@@ -173,6 +189,7 @@ impl Formatter {
             .collect::<Vec<String>>()
             .join("\n")
     }
+    /// Format JavaScript URL relationships.
     pub fn format_js(&self, js_urls: &HashMap<URLNode, HashSet<URLNode>>) -> String {
         js_urls
             .iter()
@@ -193,6 +210,7 @@ impl Formatter {
             .collect::<Vec<String>>()
             .join("\n")
     }
+    /// Format secrets found while crawling URLs.
     pub fn format_secrets(&self, url_secrets: &HashMap<URLNode, HashSet<Secret>>) -> String {
         let res = url_secrets
             .iter()
@@ -219,6 +237,7 @@ impl Formatter {
             res.join("\n")
         }
     }
+    /// Format secrets found while scanning local paths.
     pub fn format_local_secrets(
         &self,
         path_secrets: &HashMap<&PathBuf, HashSet<Secret>>,
@@ -277,6 +296,7 @@ fn get_root_domain(host: &str) -> Option<String> {
     let domain = parse_domain_name(host).ok()?;
     domain.root().map(str::to_string)
 }
+/// Write crawler results to CSV and return the number of written records.
 pub fn output_csv(
     outfile: Box<dyn io::Write>,
     urls: &HashMap<URLNode, HashSet<URLNode>>,

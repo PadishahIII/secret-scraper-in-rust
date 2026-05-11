@@ -185,47 +185,86 @@ The runtime configuration is built in this order:
 
 CLI values override YAML values. Missing CLI/YAML fields do not clear existing values.
 
-When the binary starts without a config file, it writes a default `settings.yaml` in the current directory and exits after printing a message.
+The default config file path is `setting.yaml`. When that file does not exist, the binary writes a generated default configuration to that path and exits after printing a message.
 
-### YAML Example
+### Using `setting.yaml`
+
+Create a config file with the default path:
+
+```bash
+cargo run --
+```
+
+Edit `setting.yaml`, then run the CLI again with the same default path:
+
+```bash
+cargo run --
+```
+
+Use a different config file with `--config`:
+
+```bash
+cargo run -- --config showcase.yaml
+```
+
+CLI values override values loaded from YAML. For example, this uses all values from `showcase.yaml` except `url` and `outfile`:
+
+```bash
+cargo run -- --config showcase.yaml --url https://override.example --outfile override.csv
+```
+
+### Showcase Configuration
+
+This example shows the expected shape of each configurable field with non-default demonstration values. Use it as a template, not as the generated default. The `urlFind`, `jsFind`, and `rules` entries shown here are custom additions; the generated `setting.yaml` already contains the built-in lists.
 
 ```yaml
-debug: false
-url: "https://example.com"
-mode: normal
-max_page: 100
-max_depth: 2
-detail: true
-validate: false
-outfile: "result.csv"
-
-timeout: 30
-max_page_num: 100000
-max_concurrent_per_domain: 50
-min_request_interval: 0.2
-follow_redirects: false
-
+debug: true
+user_agent: "SecretScraper/0.1 (+https://example.local)"
+cookie: "session=demo; theme=dark"
 allow_domains:
   - "*.example.com"
+  - "api.example.org"
 disallow_domains:
   - "*.gov"
+  - "logout.example.com"
+url_file: "urls.txt"
+config: "showcase.yaml"
+timeout: 10.0
+mode: Thorough
+max_page: 500
+max_depth: 3
+max_concurrent_per_domain: 10
+min_request_interval: 0.5
+outfile: "result.csv"
+status_filter:
+  - Exact: 200
+  - Range:
+      - 300
+      - 399
+proxy: "http://127.0.0.1:8080"
+hide_regex: false
+follow_redirects: true
 dangerousPath:
   - logout
   - update
   - remove
   - insert
   - delete
+url: "https://example.com"
+detail: true
+validate: true
+local: null
 
 headers:
-  Accept: "*/*"
-  Cookie: ""
-  User-Agent: "Mozilla/5.0"
+  accept: "application/json,text/html,*/*"
+  user-agent: "SecretScraper/0.1 (+https://example.local)"
+  x-demo-header: "demo"
 
 urlFind:
-  - "[\"'‘“`]\\s{0,6}(https{0,1}:[-a-zA-Z0-9()@:%_\\+.~#?&//={}]{2,100}?)\\s{0,6}[\"''‘“`]'"
+  - "https?://[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]+"
 
 jsFind:
-  - "(https{0,1}:[-a-zA-Z0-9（）@:%_\\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\\+.~#?&//=]{3}[.]js)"
+  - "[\"']([^\"']+\\.js)[\"']"
 
 rules:
   - name: Custom Secret
@@ -236,9 +275,80 @@ rules:
     loaded: false
 ```
 
-YAML-only keys include `timeout`, `max_concurrent_per_domain`, `follow_redirects`, `max_page_num`, `dangerousPath`, `headers`, `urlFind`, `jsFind`, and `rules`.
+For local scanning, replace the crawl target fields with `local`:
 
-`rules` entries with `loaded: false` are skipped. Invalid regex patterns cause configuration loading to fail.
+```yaml
+url: null
+url_file: null
+local: "./samples"
+outfile: "local-scan.yml"
+```
+
+### Default Configuration Values
+
+The generated `setting.yaml` is the serialized form of `Config::default_with_rules()`. It includes all built-in URL, JavaScript, and secret rules.
+
+The generated rule sections use two different shapes:
+
+```yaml
+urlFind:
+  - "https?://..."
+jsFind:
+  - "[\"']([^\"']+\\.js)[\"']"
+rules:
+  - name: Custom Secret
+    regex: "SECRET_[A-Z0-9]+"
+    loaded: true
+headers:
+  accept: "*/*"
+  user-agent: "Mozilla/5.0 ..."
+```
+
+`urlFind` and `jsFind` are lists of regex strings. `rules` is a list of named secret rules with `regex` and `loaded` fields.
+
+| Field | Default value | Meaning |
+| --- | --- | --- |
+| `debug` | `false` | Enable debug logging. |
+| `user_agent` | `null` | Optional user-agent override. When set, it is inserted into request headers. |
+| `cookie` | `null` | Optional cookie header value. |
+| `allow_domains` | `null` | Optional allow-list of wildcard domain patterns. |
+| `disallow_domains` | `null` | Optional block-list of wildcard domain patterns. |
+| `url_file` | `null` | Optional newline-delimited seed URL file. |
+| `config` | `setting.yaml` | Config file path used by the CLI. |
+| `timeout` | `30.0` | Request timeout in seconds. |
+| `mode` | `Normal` | Crawl mode preset. `Normal` uses depth 1; `Thorough` uses depth 2. |
+| `max_page` | `100000` | Maximum number of pages to crawl. |
+| `max_depth` | `null` | Optional explicit crawl depth override. `0` means seed URLs only. |
+| `max_concurrent_per_domain` | `50` | Maximum concurrent requests per domain. |
+| `min_request_interval` | `0.2` | Minimum seconds between requests to the same domain. |
+| `outfile` | `null` | Optional output path. Crawl output is CSV; local scan output is YAML. |
+| `status_filter` | `null` | Optional response status display filter. |
+| `proxy` | `null` | Optional proxy URL such as `http://127.0.0.1:8080` or `socks5://127.0.0.1:7890`. |
+| `hide_regex` | `false` | Hide regex/secret output in human-readable output. |
+| `follow_redirects` | `false` | Follow HTTP redirects while crawling. |
+| `dangerousPath` | `null` | Optional path fragments to avoid requesting. |
+| `url` | `null` | Optional single crawl seed URL. |
+| `detail` | `false` | Show detailed crawl output. |
+| `validate` | `false` | Validate discovered link status after crawling. |
+| `local` | `null` | Optional local file or directory to scan recursively. |
+| `urlFind` | five built-in regex strings | Regex rules used to discover URLs from text. |
+| `jsFind` | three built-in regex strings | Regex rules used to discover JavaScript URLs from text. |
+| `rules` | ten built-in named secret rules | Regex rules used to detect secrets. |
+| `headers` | `accept: "*/*"` and `user-agent: "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.87 Safari/537.36 SE 2.X MetaSr 1.0"` | Default HTTP headers sent by crawler requests. |
+
+### Field Notes
+
+- At least one of `url`, `url_file`, or `local` must be set before scanning.
+- `mode` accepts `Normal`/`Thorough` in generated YAML and `normal`/`thorough` on the CLI.
+- `follow_redirects` is the YAML field name; the CLI flag is `--follow-redirect`.
+- `headers` values are merged onto the default header map. Reusing `accept` or `user-agent` overrides the default values.
+- `urlFind` and `jsFind` entries are plain regex strings. They do not use `name` or `loaded`.
+- `rules` entries use `name`, `regex`, and `loaded`.
+- `urlFind`, `jsFind`, and loaded `rules` entries are appended to any existing rules when you apply a YAML layer to `Config::default_with_rules()`.
+- `rules` entries with `loaded: false` are skipped.
+- Invalid regex patterns or invalid header names/values cause configuration loading to fail.
+
+`status_filter` is serialized as `Exact` and `Range` entries. You normally set it from the CLI with `--status 200,300-399`; if writing YAML manually, use the tagged enum shape shown in the showcase.
 
 ### Built-In Rules
 

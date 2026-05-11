@@ -1,3 +1,5 @@
+//! Crawl scheduler and result aggregation.
+
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
@@ -7,14 +9,14 @@ use std::{
 use actix::{Actor, Addr};
 use anyhow::{Result, anyhow};
 use derive_builder::Builder;
-use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
+use reqwest::header::HeaderMap;
 use reqwest::redirect::Policy;
 use reqwest::{Client, Proxy};
 use serde::Serialize;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::task;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use url::Url;
 
 use crate::scraper::{
@@ -32,10 +34,13 @@ use std::time::Duration;
 static MAX_INFLIGHT_TASKS: usize = 256;
 static MAX_REDIRECT: usize = 5;
 
+/// Error returned while building a [`Crawler`].
 #[derive(Debug)]
 #[allow(unused)]
 pub enum CrawlerBuildError {
+    /// A required builder field was not initialized.
     UninitializedFieldError(String),
+    /// Any other builder error.
     Other(anyhow::Error),
 }
 impl From<UninitializedFieldError> for CrawlerBuildError {
@@ -61,14 +66,19 @@ struct CrawlerState {
     page_cnt: u32,
     url_secrets: HashMap<Url, HashSet<Secret>>,
 }
+/// Aggregated crawler output.
 #[derive(Serialize)]
 pub struct CrawlerResult {
     #[serde(rename = "found_hostnames")]
+    /// Discovered host nodes.
     pub hosts: HashSet<URLNode>,
     #[serde(rename = "url_hierarchy")]
+    /// Parent-child non-JavaScript URL relationships.
     pub urls: HashMap<URLNode, HashSet<URLNode>>,
     #[serde(rename = "js_hierarchy")]
+    /// Parent-child JavaScript URL relationships.
     pub js: HashMap<URLNode, HashSet<URLNode>>,
+    /// Secrets found per URL.
     pub secrets: HashMap<URLNode, HashSet<Secret>>,
 }
 impl AsRef<CrawlerResult> for CrawlerResult {
@@ -153,6 +163,8 @@ impl CrawlerResult {}
 #[derive(Builder)]
 #[builder(pattern = "owned", build_fn(skip, error = "CrawlerBuildError"))]
 #[allow(unused)]
+#[allow(missing_docs)]
+/// Concurrent web crawler over seed URLs.
 pub struct Crawler<F, H>
 where
     F: URLFilter,
@@ -194,20 +206,16 @@ where
         if let Some(Some(proxy)) = self.proxy.as_ref() {
             builder = builder.proxy(Proxy::all(proxy)?);
         }
-        let mut headers = HeaderMap::new();
-        // default headers
-        headers.insert(USER_AGENT,HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.87 Safari/537.36 SE 2.X MetaSr 1.0"));
-        headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
-
         if let Some(Some(custom_headers)) = self.headers.as_ref() {
-            headers.extend(custom_headers.clone());
+            builder = builder.default_headers(custom_headers.clone());
         }
-        builder = builder.default_headers(headers);
         if let Some(timeout) = self.timeout {
             builder = builder.timeout(timeout);
         }
         if self.follow_redirects.unwrap_or_default() {
             builder = builder.redirect(Policy::limited(MAX_REDIRECT));
+        } else {
+            builder = builder.redirect(Policy::none());
         }
         let client = builder.build()?;
 
@@ -231,6 +239,7 @@ where
             })
             .collect::<Result<Vec<Addr<Worker<H>>>>>()
     }
+    /// Build a crawler from configured builder fields.
     pub fn build(self) -> Result<Crawler<Filter, H>, String> {
         let workers_addr = self.default_workers_addr().map_err(|e| e.to_string())?;
         let mut crawler = Crawler {
@@ -273,6 +282,7 @@ where
     Filter: URLFilter,
     H: Handler,
 {
+    /// Run the crawl until queues are exhausted or limits are reached.
     pub async fn run(&mut self) -> Result<()> {
         let (tx, mut rx) = mpsc::channel::<Result<ScrapeResult, String>>(MAX_INFLIGHT_TASKS);
         let mut next_worker = 0;
@@ -325,7 +335,12 @@ where
                 }
             }
             // end point
-            if self.state.in_flight == 0 && self.state.working_queue.is_empty() {
+            let reached_page_limit = self
+                .max_page_num
+                .is_some_and(|max_page| self.state.page_cnt >= max_page);
+            if self.state.in_flight == 0
+                && (self.state.working_queue.is_empty() || reached_page_limit)
+            {
                 break;
             }
             // print per result
@@ -349,7 +364,7 @@ where
                         self.consume(result);
                     }
                     Err(send_err) => {
-                        panic!("dispatch scrape task error: {send_err}");
+                        return Err(anyhow!("dispatch scrape task error: {send_err}"));
                     }
                 }
             }
@@ -359,6 +374,7 @@ where
         }
         Ok(())
     }
+    /// Consume the crawler and return aggregated results.
     pub fn result(self) -> Result<CrawlerResult> {
         CrawlerResult::try_from(self.state)
     }
@@ -367,7 +383,6 @@ where
         match result {
             ScrapeResult::Ignore(url) => {
                 debug!("ignored: {}", url.url);
-                self.state.page_cnt -= 1;
                 if let Some(u) = self.state.url_bucket.get_mut(&url.url_obj) {
                     u.response_status = ResponseStatus::Ignore;
                 }
@@ -377,6 +392,20 @@ where
                     JS,
                     Url,
                 }
+                info!(
+                    "{}: {} url children, {} js children, {} secrets",
+                    result.url.url,
+                    result.url_children.len(),
+                    result.js_children.len(),
+                    result.secrets.len()
+                );
+                if let Some(node) = self.state.url_bucket.get_mut(&result.url.url_obj) {
+                    node.response_status = result.url.response_status;
+                    node.content_length = result.url.content_length;
+                    node.content_type = result.url.content_type;
+                    node.title = result.url.title;
+                }
+
                 // extend
                 result
                     .url_children
@@ -471,6 +500,9 @@ where
         loop {
             for url in unknown_urls.by_ref() {
                 if self.should_evade(url.path()) {
+                    if let Some(node) = self.state.url_bucket.get_mut(url) {
+                        node.response_status = ResponseStatus::Ignore;
+                    }
                     continue;
                 }
                 if in_flight >= MAX_INFLIGHT_TASKS {
@@ -514,11 +546,25 @@ where
                             }
                             FetchResult::Err(e) => {
                                 error!("validate error: {e}");
+                                match e {
+                                    ScrapeError::FetchError { url, err } => {
+                                        if let Some(node) = self.state.url_bucket.get_mut(&url) {
+                                            node.response_status =
+                                                ResponseStatus::Failed(err.to_string());
+                                        }
+                                    }
+                                    ScrapeError::ProcessError { url, err } => {
+                                        if let Some(node) = self.state.url_bucket.get_mut(&url) {
+                                            node.response_status =
+                                                ResponseStatus::Failed(err.to_string());
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                     Err(send_err) => {
-                        panic!("dispatch scrape task error: {send_err}");
+                        return Err(anyhow!("dispatch scrape task error: {send_err}"));
                     }
                 }
             }

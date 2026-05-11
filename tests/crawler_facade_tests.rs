@@ -16,7 +16,8 @@ use std::{
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use secret_scraper::{
     cli::{Config, Rule},
-    facade::{CrawlerFacade, ScanFacade},
+    facade::{CrawlerFacade, ScanFacade, ScanResult},
+    urlparser::ResponseStatus,
 };
 
 #[derive(Clone)]
@@ -243,18 +244,22 @@ fn crawler_config(url: Option<String>) -> Config {
 }
 
 fn run_facade(config: Config) {
+    let _ = run_facade_and_return(config);
+}
+
+fn run_facade_and_return(config: Config) -> ScanResult {
     assert!(!config.url_find_rules.is_empty(), "url rules should be set");
     assert!(
         !config.custom_rules.is_empty(),
         "custom rules should be set"
     );
-    thread::spawn(move || {
+    thread::spawn(move || -> ScanResult {
         Box::new(CrawlerFacade::new(config).expect("crawler facade"))
             .scan()
-            .expect("scan crawler facade");
+            .expect("scan crawler facade")
     })
     .join()
-    .expect("facade thread");
+    .expect("facade thread")
 }
 
 fn facade_test_guard() -> MutexGuard<'static, ()> {
@@ -288,6 +293,9 @@ fn crawler_facade_integration_scenarios() {
     scenario_ignores_non_processable_content_without_crawling_body_links();
     scenario_processes_json_with_regex_discovered_links();
     scenario_respects_redirect_policy();
+    scenario_validate_marks_dangerous_frontier_urls_ignored();
+    scenario_validate_marks_failed_frontier_urls_failed();
+    scenario_max_page_counts_ignored_responses();
 }
 
 fn scenario_crawls_seed_and_html_children() {
@@ -304,6 +312,16 @@ fn scenario_crawls_seed_and_html_children() {
 
     assert_eq!(server.log.count("/index"), 1, "{:?}", server.log.paths());
     assert_eq!(server.log.count("/child"), 1);
+    assert!(server.log.has_header("accept", "*/*"));
+    assert!(
+        server
+            .log
+            .headers
+            .lock()
+            .expect("headers lock")
+            .iter()
+            .any(|headers| headers.contains_key("user-agent"))
+    );
 }
 
 fn scenario_reads_multiple_seeds_from_url_file() {
@@ -379,7 +397,7 @@ fn scenario_validates_found_but_not_crawled_frontier_urls() {
 
     run_facade(config);
 
-    assert_eq!(server.log.count("/root"), 2);
+    assert_eq!(server.log.count("/root"), 1);
     assert_eq!(server.log.count("/validate-me"), 1);
 }
 
@@ -491,4 +509,80 @@ fn scenario_respects_redirect_policy() {
 
     assert_eq!(server.log.count("/redirect"), 1);
     assert_eq!(server.log.count("/final"), 1);
+}
+
+fn scenario_validate_marks_dangerous_frontier_urls_ignored() {
+    let _guard = facade_test_guard();
+    let server = TestServer::start(HashMap::from([
+        (
+            "/root".to_string(),
+            ResponseSpec::html(r#"<a href="/logout">logout</a>"#),
+        ),
+        ("/logout".to_string(), ResponseSpec::html("logout")),
+    ]));
+    let mut config = crawler_config(Some(server.url("/root")));
+    config.max_depth = Some(0);
+    config.validate = true;
+    config.dangerous_paths = Some(vec!["logout".to_string()]);
+
+    let result = run_facade_and_return(config);
+
+    assert_eq!(server.log.count("/root"), 1, "{:?}", server.log.paths());
+    assert_eq!(server.log.count("/logout"), 0);
+    let ScanResult::CrawlResult(result) = result else {
+        panic!("expected crawl result");
+    };
+    let logout = result
+        .urls
+        .values()
+        .flatten()
+        .find(|node| node.url.ends_with("/logout"))
+        .expect("logout frontier node");
+    assert!(matches!(logout.response_status, ResponseStatus::Ignore));
+}
+
+fn scenario_validate_marks_failed_frontier_urls_failed() {
+    let _guard = facade_test_guard();
+    let server = TestServer::start(HashMap::from([(
+        "/root".to_string(),
+        ResponseSpec::html(r#"<a href="/missing">missing</a>"#),
+    )]));
+    let mut config = crawler_config(Some(server.url("/root")));
+    config.max_depth = Some(0);
+    config.validate = true;
+
+    let result = run_facade_and_return(config);
+
+    assert_eq!(server.log.count("/root"), 1, "{:?}", server.log.paths());
+    assert_eq!(server.log.count("/missing"), 1);
+    let ScanResult::CrawlResult(result) = result else {
+        panic!("expected crawl result");
+    };
+    let missing = result
+        .urls
+        .values()
+        .flatten()
+        .find(|node| node.url.ends_with("/missing"))
+        .expect("missing frontier node");
+    assert!(matches!(missing.response_status, ResponseStatus::Valid(404)));
+}
+
+fn scenario_max_page_counts_ignored_responses() {
+    let _guard = facade_test_guard();
+    let server = TestServer::start(HashMap::from([
+        (
+            "/root".to_string(),
+            ResponseSpec::html(r#"<a href=/binary>binary</a>"#),
+        ),
+        ("/binary".to_string(), ResponseSpec::binary()),
+        ("/from-binary".to_string(), ResponseSpec::html("from binary")),
+    ]));
+    let mut config = crawler_config(Some(server.url("/root")));
+    config.max_page = Some(2);
+
+    run_facade(config);
+
+    assert_eq!(server.log.count("/root"), 1, "{:?}", server.log.paths());
+    assert_eq!(server.log.count("/binary"), 1, "{:?}", server.log.paths());
+    assert_eq!(server.log.count("/from-binary"), 0, "{:?}", server.log.paths());
 }

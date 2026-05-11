@@ -10,7 +10,7 @@ mod scanner;
 mod scraper;
 mod urlparser;
 
-use std::{fs::File, io::BufWriter, path::PathBuf};
+use std::{fs::File, io::BufWriter};
 
 use crate::{
     cli::{CliConfigLayer, Config, FileConfigLayer},
@@ -23,34 +23,25 @@ use cli::LoadFromYaml;
 fn main() {
     let cli_layer = CliConfigLayer::parse();
 
-    let yaml_path = cli_layer.config.clone().or_else(|| {
-        let default = PathBuf::from("settings.yaml");
-        default.exists().then_some(default)
-    });
+    let yaml_path = cli_layer.config.clone();
 
-    let yaml_layer = match yaml_path {
-        Some(ref path) if path.exists() => Some(
-            FileConfigLayer::load_from_yaml(path.clone()).unwrap_or_else(|e| {
-                tracing::error!("Failed to load config file {}: {e}", path.display());
+    let yaml_layer = if yaml_path.exists() {
+        Some(
+            FileConfigLayer::load_from_yaml(yaml_path.clone()).unwrap_or_else(|e| {
+                eprintln!("Failed to load config file {}: {e}", yaml_path.display());
                 std::process::exit(1);
             }),
-        ),
-        Some(path) => {
-            tracing::error!("Config file {} does not exist", path.display());
-            std::process::exit(1);
-        }
-        None => {
-            let default_path = PathBuf::from("settings.yaml");
-            let f = File::options()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&default_path)
-                .unwrap();
-            serde_yaml::to_writer(BufWriter::new(f), &Config::default_with_rules()).unwrap();
-            println!("Default configuration written to settings.yaml");
-            None
-        }
+        )
+    } else {
+        let f = File::options()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&yaml_path)
+            .unwrap();
+        serde_yaml::to_writer(BufWriter::new(f), &Config::default_with_rules()).unwrap();
+        println!("Default configuration written to {}", yaml_path.display());
+        None
     };
 
     let mut config = Config::default();
@@ -60,7 +51,7 @@ fn main() {
     config.apply_cli_layer(cli_layer);
 
     if let Err(e) = config.validate() {
-        tracing::error!("{e}");
+        eprintln!("configuration error: {e}");
         std::process::exit(1);
     }
 

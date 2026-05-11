@@ -1,3 +1,5 @@
+//! Actix worker actor for fetching URLs and extracting artifacts.
+
 use std::{collections::HashSet, sync::Arc};
 
 use actix::{Actor, Context, ResponseFuture};
@@ -24,6 +26,7 @@ lazy_static! {
 /// Worker actor fetch single url and extract secrets and children
 #[derive(Builder)]
 #[builder(pattern = "owned")]
+#[allow(missing_docs)]
 pub struct Worker<H: Handler> {
     client: Client,
     handler: Arc<H>,
@@ -99,17 +102,19 @@ impl<H: Handler> Worker<H> {
     }
     /// return: response body, ignored or not
     async fn fetch(&self, url: &mut URLNode) -> ScrapeStdResult<(String, bool)> {
-        let mut guard = self.rate_limiter.lock().await;
-        let _permit = guard
-            .acquire(url.url_obj.host_str().unwrap_or_default().to_string())
-            .await
-            .map_err(|e| {
-                url.response_status = ResponseStatus::Failed(e.to_string());
-                ScrapeError::process_error(
-                    url.url_obj.clone(),
-                    format!("rate limiter acquire error: {e}"),
-                )
-            })?;
+        let _permit = {
+            let mut guard = self.rate_limiter.lock().await;
+            guard
+                .acquire(url.url_obj.host_str().unwrap_or_default().to_string())
+                .await
+                .map_err(|e| {
+                    url.response_status = ResponseStatus::Failed(e.to_string());
+                    ScrapeError::process_error(
+                        url.url_obj.clone(),
+                        format!("rate limiter acquire error: {e}"),
+                    )
+                })?
+        };
         let resp = self.client.get(url.url.clone()).send().await.map_err(|e| {
             url.response_status = ResponseStatus::Failed(e.to_string());
             ScrapeError::fetch_error(url.url_obj.clone(), e)

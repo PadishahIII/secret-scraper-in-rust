@@ -1,3 +1,5 @@
+//! URL node representation and link extraction helpers.
+
 use std::{collections::HashSet, fmt::Display, hash::Hash};
 
 use anyhow::{Result, anyhow, bail};
@@ -18,10 +20,12 @@ static ref IGNORED_URL:Regex = Regex::new("\\<|\\>|\\{|\\}|\\[|\\]|\\||\\^|;|/no
 static ref WORDS: Regex = Regex::new("[a-zA-Z0-9]+").unwrap();
 }
 
+/// Response status recorded for a URL node.
 #[derive(Debug, Clone, Serialize)]
 pub enum ResponseStatus {
     /// the url is not requested yet
     Unknown,
+    /// Successful HTTP response status code.
     Valid(u16),
     /// invalid response status
     Failed(String),
@@ -41,16 +45,25 @@ impl Display for ResponseStatus {
 
 #[derive(Debug, Builder, Clone, Serialize)]
 #[builder(default, build_fn(skip))]
+#[allow(missing_docs)]
+/// URL plus crawl metadata.
 pub struct URLNode {
+    /// String form of the URL.
     pub url: String,
     #[builder(setter(skip))]
     #[serde(skip)]
+    /// Parsed URL object used for equality, hashing, and joins.
     pub url_obj: Url,
     #[builder(default=ResponseStatus::Unknown)]
+    /// Response status observed for this URL.
     pub response_status: ResponseStatus,
+    /// Crawl depth from the seed URL.
     pub depth: u32,
+    /// Response content length, when known.
     pub content_length: Option<u64>,
+    /// Response content type, when known.
     pub content_type: Option<String>,
+    /// HTML title, when extracted.
     pub title: Option<String>,
 }
 impl Default for URLNode {
@@ -87,6 +100,7 @@ impl URLNodeBuilder {
         }
         Ok(())
     }
+    /// Build a [`URLNode`] and parse its URL string.
     pub fn build(&self) -> Result<URLNode> {
         let url = self.url.clone().unwrap_or_default();
         let url_obj = Url::parse(&url)?;
@@ -108,6 +122,8 @@ impl URLNodeBuilder {
 
 #[derive(Builder)]
 #[builder(pattern = "owned")]
+#[allow(missing_docs)]
+/// Extracts child URL nodes from text and HTML.
 pub struct URLParser<H>
 where
     H: Handler,
@@ -117,6 +133,7 @@ where
 }
 
 impl<H: Handler> URLParser<H> {
+    /// Extract URLs from `text` relative to `base_url`.
     pub fn extract_urls(&self, base_url: &URLNode, text: &str) -> Result<HashSet<URLNode>> {
         let mut found_urls: HashSet<URLNode> = HashSet::new();
         let mut hrefs: HashSet<String> = HashSet::new();
@@ -232,6 +249,7 @@ fn is_localhost(url: &Url) -> bool {
     let u = url.host_str().unwrap_or_default();
     u.starts_with("127.0.0.1") || u.starts_with("localhost")
 }
+/// Extract and normalize `<title>` text from an HTML response body.
 pub fn response_title(response_str: &str) -> Result<String> {
     let doc = Html::parse_document(response_str);
     let title_sel =

@@ -11,7 +11,7 @@ fn fully_specified_cli_layer() -> CliConfigLayer {
         allow_domains: Some(vec!["example.com".into()]),
         disallow_domains: Some(vec!["bad.com".into()]),
         url_file: Some(PathBuf::from("urls.txt")),
-        config: Some(PathBuf::from("custom.yaml")),
+        config: PathBuf::from("custom.yaml"),
         mode: Some(Mode::Thorough),
         max_page: Some(42),
         max_depth: Some(2),
@@ -45,10 +45,7 @@ fn assert_config_matches_fully_specified_cli(config: &Config) {
         config.url_file.as_deref(),
         Some(PathBuf::from("urls.txt").as_path())
     );
-    assert_eq!(
-        config.config.as_deref(),
-        Some(PathBuf::from("custom.yaml").as_path())
-    );
+    assert_eq!(config.config, PathBuf::from("custom.yaml"));
     assert!(matches!(config.mode, Mode::Thorough));
     assert_eq!(config.max_page, Some(42));
     assert_eq!(config.max_concurrency_per_domain, 16);
@@ -96,7 +93,7 @@ fn default_config_values() {
     assert_eq!(cfg.allow_domains, None);
     assert_eq!(cfg.disallow_domains, None);
     assert_eq!(cfg.url_file, None);
-    assert_eq!(cfg.config, None);
+    assert_eq!(cfg.config, PathBuf::from("setting.yaml"));
     assert_eq!(cfg.outfile, None);
     assert_eq!(cfg.local, None);
     assert!(matches!(cfg.mode, Mode::Normal));
@@ -107,7 +104,9 @@ fn default_config_values() {
     assert_eq!(cfg.url, None);
     assert_eq!(cfg.max_depth, None);
     assert_eq!(cfg.dangerous_paths, None);
-    assert!(cfg.custom_headers.is_none());
+    let headers = cfg.custom_headers.as_ref().expect("default headers");
+    assert_eq!(headers.get(ACCEPT).unwrap(), "*/*");
+    assert!(headers.get(USER_AGENT).is_some());
     assert!(cfg.url_find_rules.is_empty());
     assert!(cfg.js_find_rules.is_empty());
     assert!(cfg.custom_rules.is_empty());

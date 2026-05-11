@@ -1,3 +1,5 @@
+//! High-level scan facades for crawler and local file scanning workflows.
+
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use reqwest::header::{self, HeaderValue};
@@ -27,21 +29,29 @@ use crate::{
 };
 
 #[async_trait]
+/// Common interface implemented by high-level scan facades.
 pub trait ScanFacade {
+    /// Run the scan and return a typed result.
     fn scan(self: Box<Self>) -> ScanStdResult;
 }
+/// Standard result type returned by scan facades.
 pub type ScanStdResult = SecretScraperResult<ScanResult>;
+/// Result payload produced by a scan facade.
 #[allow(unused)]
 pub enum ScanResult {
+    /// Result of a local file scan keyed by scanned path.
     LocalScanResult(HashMap<PathBuf, HashSet<Secret>>),
+    /// Result of a web crawl.
     CrawlResult(CrawlerResult),
 }
+/// Facade for recursively scanning local files with configured rules.
 pub struct FileScannerFacade<'a> {
     scanner: FileScanner<PathBuf, RegexHandler>,
     formatter: Formatter,
     outfile: Box<dyn io::Write + Send + 'a>,
 }
 impl<'a> FileScannerFacade<'a> {
+    /// Build a local file scanner facade from [`Config`].
     pub fn new(config: Config) -> Result<Self> {
         let base = config
             .local
@@ -106,6 +116,7 @@ impl<'a> ScanFacade for FileScannerFacade<'a> {
     }
 }
 
+/// Facade for crawling web targets with configured rules.
 pub struct CrawlerFacade {
     system: actix::SystemRunner,
     crawler: Crawler<ChainedURLFilter, RegexHandler>,
@@ -117,6 +128,7 @@ pub struct CrawlerFacade {
     show_detail: bool,
 }
 impl CrawlerFacade {
+    /// Build a crawler facade from [`Config`].
     pub fn new(config: Config) -> Result<Self> {
         let system = actix::System::new();
         let mut seeds = vec![];
