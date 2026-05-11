@@ -12,5 +12,6 @@ Todo:
 - [x] Add integration tests
 - [x] Add examples
 - [x] Resolve lint warnings
+- [x] Add doc
 - [ ] Test performance and compare with the python version; use `time` tool
 - [ ] Publish

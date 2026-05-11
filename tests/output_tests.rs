@@ -94,7 +94,7 @@ fn format_url_per_domain_groups_by_root_domain_and_includes_base_url() {
     let mut urls = HashMap::new();
     urls.insert(base, children(vec![child]));
 
-    let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::URL));
+    let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::Url));
 
     assert!(output.contains("2 URL from example.com:\n"));
     assert!(output.contains("https://www.example.com [200]"));
@@ -137,7 +137,7 @@ fn format_url_per_domain_counts_only_filtered_urls() {
     let mut urls = HashMap::new();
     urls.insert(base, children(vec![ok, missing]));
 
-    let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::URL));
+    let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::Url));
 
     assert!(output.contains("2 URL from example.com:"));
     assert!(output.contains("https://example.com [200]"));
@@ -155,7 +155,7 @@ fn format_url_per_domain_filters_ignored_urls() {
     let mut urls = HashMap::new();
     urls.insert(base, children(vec![ignored]));
 
-    let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::URL));
+    let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::Url));
 
     assert!(output.contains("1 URL from example.com:"));
     assert!(output.contains("https://example.com [200]"));
