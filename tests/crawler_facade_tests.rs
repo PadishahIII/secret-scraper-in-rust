@@ -120,8 +120,8 @@ impl TestServer {
     fn start(routes: HashMap<String, ResponseSpec>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
         listener
-            .set_nonblocking(true)
-            .expect("set listener nonblocking");
+            .set_nonblocking(false)
+            .expect("set listener blocking");
         let addr = listener.local_addr().expect("local addr");
         let routes = Arc::new(routes);
         let log = RequestLog::default();
@@ -138,10 +138,9 @@ impl TestServer {
                         let log = server_log.clone();
                         thread::spawn(move || handle_connection(stream, &routes, &log));
                     }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        thread::sleep(Duration::from_millis(5));
-                    }
-                    Err(_) => break,
+                    Err(e) if is_transient_accept_error(&e) => continue,
+                    Err(_) if server_shutdown.load(Ordering::Relaxed) => break,
+                    Err(_) => continue,
                 }
             }
         });
@@ -158,6 +157,15 @@ impl TestServer {
     fn url(&self, path: &str) -> String {
         format!("http://{}{}", self.addr, path)
     }
+}
+
+fn is_transient_accept_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+    )
 }
 
 impl Drop for TestServer {
@@ -564,7 +572,10 @@ fn scenario_validate_marks_failed_frontier_urls_failed() {
         .flatten()
         .find(|node| node.url.ends_with("/missing"))
         .expect("missing frontier node");
-    assert!(matches!(missing.response_status, ResponseStatus::Valid(404)));
+    assert!(matches!(
+        missing.response_status,
+        ResponseStatus::Valid(404)
+    ));
 }
 
 fn scenario_max_page_counts_ignored_responses() {
@@ -575,7 +586,10 @@ fn scenario_max_page_counts_ignored_responses() {
             ResponseSpec::html(r#"<a href=/binary>binary</a>"#),
         ),
         ("/binary".to_string(), ResponseSpec::binary()),
-        ("/from-binary".to_string(), ResponseSpec::html("from binary")),
+        (
+            "/from-binary".to_string(),
+            ResponseSpec::html("from binary"),
+        ),
     ]));
     let mut config = crawler_config(Some(server.url("/root")));
     config.max_page = Some(2);
@@ -584,5 +598,10 @@ fn scenario_max_page_counts_ignored_responses() {
 
     assert_eq!(server.log.count("/root"), 1, "{:?}", server.log.paths());
     assert_eq!(server.log.count("/binary"), 1, "{:?}", server.log.paths());
-    assert_eq!(server.log.count("/from-binary"), 0, "{:?}", server.log.paths());
+    assert_eq!(
+        server.log.count("/from-binary"),
+        0,
+        "{:?}",
+        server.log.paths()
+    );
 }
