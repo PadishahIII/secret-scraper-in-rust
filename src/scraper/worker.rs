@@ -4,7 +4,7 @@ use actix::{Actor, Context, ResponseFuture};
 use derive_builder::Builder;
 use lazy_static::lazy_static;
 use reqwest::{Client, header};
-use scraper::{Html, Selector};
+use scraper::Selector;
 use tokio::sync::{Mutex, oneshot};
 use url::Url;
 
@@ -15,7 +15,7 @@ use crate::{
         FetchMessage, FetchResult, ScrapeArtifacts, ScrapeError, ScrapeMessage, ScrapeResult,
         ScrapeStdResult,
     },
-    urlparser::{ResponseStatus, URLNode, URLNodeBuilder, URLParser},
+    urlparser::{ResponseStatus, URLNode, URLNodeBuilder, URLParser, response_title},
 };
 lazy_static! {
     static ref title_selector: Selector = Selector::parse("title").unwrap();
@@ -80,18 +80,15 @@ enum ScrapeInnerResult {
 }
 impl<H: Handler> Worker<H> {
     async fn scrape(self, url: Url) -> ScrapeResult {
-        let node;
-        match URLNodeBuilder::default().url(url.to_string()).build() {
+        let node = match URLNodeBuilder::default().url(url.to_string()).build() {
             Err(e) => {
                 return ScrapeResult::Err(ScrapeError::process_error(
                     url,
                     format!("URLNodeBuilder error: {e}"),
                 ));
             }
-            Ok(u) => {
-                node = u;
-            }
-        }
+            Ok(u) => u,
+        };
         match self.scrape_inner(node).await {
             Ok(artifacts) => match artifacts {
                 ScrapeInnerResult::Normal(artifacts) => ScrapeResult::Ok(artifacts),
@@ -137,11 +134,7 @@ impl<H: Handler> Worker<H> {
         if let Some(ct) = &url.content_type
             && is_html(ct)
         {
-            let doc = Html::parse_document(&html);
-            url.title = doc
-                .select(&title_selector)
-                .next()
-                .map(|e| e.text().collect::<String>().trim().to_string());
+            url.title = response_title(&html).ok();
         }
         Ok((html, false))
     }

@@ -1,4 +1,5 @@
 mod cli;
+mod error;
 mod facade;
 mod filter;
 mod handler;
@@ -15,7 +16,6 @@ use crate::{
     cli::{CliConfigLayer, Config, FileConfigLayer},
     facade::{CrawlerFacade, FileScannerFacade, ScanFacade},
     logging::init_tracing,
-    scraper::crawler::Crawler,
 };
 use clap::Parser;
 use cli::LoadFromYaml;
@@ -65,7 +65,7 @@ fn main() {
     }
 
     let _guard = init_tracing(config.debug);
-    let mut facade: Box<dyn ScanFacade> = if config.local.is_some() {
+    let facade: Box<dyn ScanFacade> = if config.local.is_some() {
         Box::new(
             FileScannerFacade::new(config)
                 .map_err(|e| format!("fail to create FileScannerFacade: {e}"))
@@ -78,5 +78,5 @@ fn main() {
                 .unwrap(),
         )
     };
-    facade.start();
+    facade.scan().unwrap();
 }

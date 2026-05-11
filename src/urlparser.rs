@@ -5,7 +5,7 @@ use derive_builder::Builder;
 use lazy_static::lazy_static;
 use regex::Regex;
 use scraper::{Html, Selector};
-use serde::{Serialize, ser::SerializeStruct};
+use serde::Serialize;
 use url::Url;
 
 use crate::handler::Handler;
@@ -232,7 +232,7 @@ fn is_localhost(url: &Url) -> bool {
     let u = url.host_str().unwrap_or_default();
     u.starts_with("127.0.0.1") || u.starts_with("localhost")
 }
-fn response_title(response_str: &str) -> Result<String> {
+pub fn response_title(response_str: &str) -> Result<String> {
     let doc = Html::parse_document(response_str);
     let title_sel =
         Selector::parse("title").map_err(|e| anyhow!("fail to parse title selector: {e}"))?;
@@ -242,8 +242,4 @@ fn response_title(response_str: &str) -> Result<String> {
         .map(|s: String| s.replace("\n", " ").replace("\r", " ").trim().to_string())
         .collect::<Vec<String>>()
         .join("|"))
-}
-/// Get the directory part of a path, including the trailing slash. If there is no slash, return an empty string.
-fn dir_of(path: String) -> Option<String> {
-    path.rfind('/').map(|i| path[..=i].into())
 }

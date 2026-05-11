@@ -1,10 +1,7 @@
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use csv::Writer;
-use derive_builder::Builder;
 use reqwest::header::{self, HeaderValue};
 use std::{
-    cell::Cell,
     collections::{HashMap, HashSet},
     fs::{self, File},
     io::{self, stdout},
@@ -13,28 +10,35 @@ use std::{
 };
 use tokio::{runtime::Runtime, sync::Mutex};
 use tracing::info;
-use url::Url;
 
 use globwalk::GlobWalkerBuilder;
 
+use crate::output::Formatter;
 use crate::{
     cli::Config,
-    filter::{ChainedURLFilter, ChainedURLFilterBuilder},
-    handler::RegexHandler,
+    error::{Result as SecretScraperResult, SecretScraperError},
+    filter::ChainedURLFilter,
+    handler::{RegexHandler, Secret},
     output::{URLType, output_csv},
-    rate_limiter::{DomainRateLimiter, DomainRateLimiterBuilder},
+    rate_limiter::DomainRateLimiterBuilder,
     scanner::FileScanner,
-    scraper::crawler::{Crawler, CrawlerBuilder},
-    urlparser::{URLNode, URLParser, URLParserBuilder},
+    scraper::crawler::{Crawler, CrawlerBuilder, CrawlerResult},
+    urlparser::URLParserBuilder,
 };
-use crate::{output::Formatter, scraper::crawler};
 
 #[async_trait]
 pub trait ScanFacade {
-    fn start(self);
+    fn scan(self: Box<Self>) -> ScanStdResult;
+}
+pub type ScanStdResult = SecretScraperResult<ScanResult>;
+#[allow(unused)]
+pub enum ScanResult {
+    LocalScanResult(HashMap<PathBuf, HashSet<Secret>>),
+    CrawlResult(CrawlerResult),
 }
 pub struct FileScannerFacade<'a> {
     scanner: FileScanner<PathBuf, RegexHandler>,
+    formatter: Formatter,
     outfile: Box<dyn io::Write + Send + 'a>,
 }
 impl<'a> FileScannerFacade<'a> {
@@ -68,33 +72,36 @@ impl<'a> FileScannerFacade<'a> {
         let scanner = FileScanner::new(targets, handler);
         Ok(Self {
             scanner,
+            formatter: Formatter::new(config.status_filter),
             outfile: out,
         })
     }
 }
 #[async_trait]
 impl<'a> ScanFacade for FileScannerFacade<'a> {
-    fn start(mut self) {
+    fn scan(mut self: Box<Self>) -> ScanStdResult {
         Runtime::new()
-            .map_err(|e| anyhow!("fail to create tokio runtime: {e}"))
-            .unwrap()
+            .map_err(|e| SecretScraperError::Runtime(format!("fail to create tokio runtime: {e}")))?
             .block_on(async {
                 match self.scanner.scan().await {
                     Ok(res) => {
+                        tracing::info!("Secrets: {}", self.formatter.format_local_secrets(&res));
                         self.outfile
                             .write_all(
                                 serde_yaml::to_string(&res)
-                                    .map_err(|e| format!("fail to serialize scanner result: {e}"))
-                                    .unwrap()
+                                    .map_err(SecretScraperError::Yaml)?
                                     .as_bytes(),
                             )
-                            .map_err(|e| format!("fail to write scanner result to file: {e}"))
-                            .unwrap();
+                            .map_err(SecretScraperError::Io)?;
+                        Ok(ScanResult::LocalScanResult(
+                            res.into_iter().map(|(k, v)| (k.clone(), v)).collect(),
+                        ))
                     }
                     Err(e) => {
-                        tracing::error!("scanner failed: {e}")
+                        tracing::error!("local scanner failed: {e}");
+                        Err(SecretScraperError::Scanner(e.to_string()))
                     }
-                };
+                }
             })
     }
 }
@@ -182,38 +189,40 @@ impl CrawlerFacade {
             None
         };
         let outfile_name = if let Some(f) = &config.outfile {
-            f.to_str().and_then(|f| Some(f.to_string()))
+            f.to_str().map(|f| f.to_string())
         } else {
             None
         };
 
-        let crawler = CrawlerBuilder::default()
-            .seeds(seeds)
-            .filter(filter_builder.build())
-            .parser(Arc::new(
-                URLParserBuilder::default().handler(url_handler).build()?,
-            ))
-            .rate_limiter(Arc::new(Mutex::new(
-                DomainRateLimiterBuilder::default()
-                    .max_concurrency_per_domain(config.max_concurrency_per_domain)
-                    .min_interval(config.min_request_interval)
-                    .build()
-                    .map_err(|e| anyhow!("fail to build rate limiter"))?,
-            )))
-            .secret_handler(Arc::new(RegexHandler::new(config.custom_rules)?))
-            .max_page_num(config.max_page)
-            .max_depth(max_depth)
-            .follow_redirects(config.follow_redirect)
-            .dangerous_paths(config.dangerous_paths)
-            .validate(config.validate)
-            .proxy(config.proxy)
-            .headers(Some(headers))
-            .timeout(config.timeout)
-            .build()
-            .map_err(|e| anyhow!("fail to build crawler: {e}"))?;
+        let crawler = system.block_on(async move {
+            CrawlerBuilder::default()
+                .seeds(seeds)
+                .filter(filter_builder.build())
+                .parser(Arc::new(
+                    URLParserBuilder::default().handler(url_handler).build()?,
+                ))
+                .rate_limiter(Arc::new(Mutex::new(
+                    DomainRateLimiterBuilder::default()
+                        .max_concurrency_per_domain(config.max_concurrency_per_domain)
+                        .min_interval(config.min_request_interval)
+                        .build()
+                        .map_err(|e| anyhow!("fail to build rate limiter: {e}"))?,
+                )))
+                .secret_handler(Arc::new(RegexHandler::new(config.custom_rules)?))
+                .max_page_num(config.max_page)
+                .max_depth(max_depth)
+                .follow_redirects(config.follow_redirect)
+                .dangerous_paths(config.dangerous_paths)
+                .validate(config.validate)
+                .proxy(config.proxy)
+                .headers(Some(headers))
+                .timeout(config.timeout)
+                .build()
+                .map_err(|e| anyhow!("fail to build crawler: {e}"))
+        })?;
         Ok(Self {
             system,
-            crawler: crawler,
+            crawler,
             outfile,
             outfile_name,
             formatter: Formatter::new(config.status_filter),
@@ -224,24 +233,25 @@ impl CrawlerFacade {
 }
 #[async_trait]
 impl ScanFacade for CrawlerFacade {
-    fn start(mut self) {
+    fn scan(mut self: Box<Self>) -> ScanStdResult {
         self.system.block_on(async {
             self.crawler
                 .run()
                 .await
-                .map_err(|e| anyhow!("crawler error: {e}"))
-                .unwrap();
-        });
+                .map_err(|e| SecretScraperError::Crawler(e.to_string()))
+        })?;
         let res = self
             .crawler
             .result()
-            .map_err(|e| anyhow!("fail to get crawler result: {e}"))
-            .unwrap();
+            .map_err(|e| SecretScraperError::Crawler(format!("fail to get crawler result: {e}")))?;
         if let Some(f) = self.outfile {
             let outfile_name = &self.outfile_name.unwrap();
-            let c = output_csv(Box::new(f), &res.urls, &res.secrets)
-                .map_err(|e| anyhow!("fail to write crawler result to file {}: {e}", outfile_name))
-                .unwrap();
+            let c = output_csv(Box::new(f), &res.urls, &res.secrets).map_err(|e| {
+                SecretScraperError::Output(format!(
+                    "fail to write crawler result to file {}: {e}",
+                    outfile_name
+                ))
+            })?;
             info!("{} records written to {}", c, outfile_name);
         }
         let hosts = self.formatter.found_domains(res.hosts.iter().collect());
@@ -262,7 +272,7 @@ impl ScanFacade for CrawlerFacade {
             tracing::info!(
                 "URL:\n{}",
                 self.formatter
-                    .format_url_per_domain(&hosts, &res.urls, URLType::URL)
+                    .format_url_per_domain(&hosts, &res.urls, URLType::Url)
             );
             tracing::info!(
                 "JS:\n{}",
@@ -277,5 +287,6 @@ impl ScanFacade for CrawlerFacade {
                 tracing::info!("Secrets:\n{}", self.formatter.format_secrets(&res.secrets));
             }
         }
+        Ok(ScanResult::CrawlResult(res))
     }
 }

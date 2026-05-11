@@ -3,13 +3,14 @@ Todo:
 - [x] Implement logger via tracing
 - [x] Implement Crawler
     - [x] implement options
-    - [ ] write tests
+    - [x] write tests
 - [x] Implement rate limiter
 - [x] Implement output formatter, tested
 - [ ] implement graceful shutdown
-- [ ] Implement lib interface: builder...
-- [ ] Add unit tests
-- [ ] Add integration tests
-- [ ] Add examples
-- [ ] Resolve lint warnings
+- [x] Implement lib interface: builder...
+- [x] Add unit tests
+- [x] Add integration tests
+- [x] Add examples
+- [x] Resolve lint warnings
+- [ ] Test performance and compare with the python version; use `time` tool
 - [ ] Publish

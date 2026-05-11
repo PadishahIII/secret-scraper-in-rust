@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fmt::Error,
     sync::Arc,
     thread::available_parallelism,
 };
@@ -12,22 +11,19 @@ use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use reqwest::redirect::Policy;
 use reqwest::{Client, Proxy};
 use serde::Serialize;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 use tokio::task;
-use tokio::{runtime::Runtime, sync::Mutex};
 use tracing::{debug, error, warn};
 use url::Url;
 
+use crate::scraper::{
+    bo::{FetchMessage, FetchResult},
+    worker::{Worker, WorkerBuilder},
+};
 use crate::urlparser::{URLNode, URLNodeBuilder, URLParser};
 use crate::{filter::URLFilter, handler::Handler};
 use crate::{handler::Secret, scraper::bo::ScrapeMessage};
-use crate::{
-    output::UNKNOWN_HOST,
-    scraper::{
-        bo::{FetchMessage, FetchResult},
-        worker::{Worker, WorkerBuilder},
-    },
-};
 use crate::{rate_limiter::DomainRateLimiter, scraper::bo::ScrapeResult};
 use crate::{scraper::bo::ScrapeError, urlparser::ResponseStatus};
 use derive_builder::UninitializedFieldError;
@@ -37,6 +33,7 @@ static MAX_INFLIGHT_TASKS: usize = 256;
 static MAX_REDIRECT: usize = 5;
 
 #[derive(Debug)]
+#[allow(unused)]
 pub enum CrawlerBuildError {
     UninitializedFieldError(String),
     Other(anyhow::Error),
@@ -76,7 +73,7 @@ pub struct CrawlerResult {
 }
 impl AsRef<CrawlerResult> for CrawlerResult {
     fn as_ref(&self) -> &CrawlerResult {
-        &self
+        self
     }
 }
 impl TryFrom<CrawlerState> for CrawlerResult {
@@ -85,8 +82,8 @@ impl TryFrom<CrawlerState> for CrawlerResult {
         Ok(Self {
             hosts: value
                 .url_bucket
-                .iter()
-                .map(|(url, _)| {
+                .keys()
+                .map(|url| {
                     URLNodeBuilder::default()
                         .url(url.to_string())
                         .build()
@@ -155,6 +152,7 @@ impl TryFrom<CrawlerState> for CrawlerResult {
 impl CrawlerResult {}
 #[derive(Builder)]
 #[builder(pattern = "owned", build_fn(skip, error = "CrawlerBuildError"))]
+#[allow(unused)]
 pub struct Crawler<F, H>
 where
     F: URLFilter,

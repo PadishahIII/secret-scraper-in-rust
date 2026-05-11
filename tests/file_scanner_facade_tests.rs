@@ -32,8 +32,9 @@ fn scanner_config(local: PathBuf, outfile: PathBuf) -> Config {
 }
 
 fn run_file_facade(config: Config) {
-    let mut facade = FileScannerFacade::new(config).expect("file scanner facade");
-    facade.start();
+    Box::new(FileScannerFacade::new(config).expect("file scanner facade"))
+        .scan()
+        .expect("scan file facade");
 }
 
 fn read_output(path: &Path) -> String {
@@ -49,7 +50,10 @@ fn file_scanner_facade_scans_single_file_and_writes_yaml() {
     run_file_facade(scanner_config(input.clone(), output.clone()));
 
     let yaml = read_output(&output);
-    assert!(yaml.contains(input.to_str().expect("utf8 input path")), "{yaml}");
+    assert!(
+        yaml.contains(input.to_str().expect("utf8 input path")),
+        "{yaml}"
+    );
     assert!(yaml.contains("secret_type: api_key"), "{yaml}");
     assert!(yaml.contains("data: SECRET_ALPHA"), "{yaml}");
     assert!(yaml.contains("secret_type: token"), "{yaml}");
@@ -73,8 +77,14 @@ fn file_scanner_facade_recursively_scans_directory_files() {
     run_file_facade(scanner_config(root.clone(), output.clone()));
 
     let yaml = read_output(&output);
-    assert!(yaml.contains(first.to_str().expect("utf8 first path")), "{yaml}");
-    assert!(yaml.contains(second.to_str().expect("utf8 second path")), "{yaml}");
+    assert!(
+        yaml.contains(first.to_str().expect("utf8 first path")),
+        "{yaml}"
+    );
+    assert!(
+        yaml.contains(second.to_str().expect("utf8 second path")),
+        "{yaml}"
+    );
     assert!(yaml.contains("data: SECRET_FIRST"), "{yaml}");
     assert!(yaml.contains("data: TOKEN_SECOND"), "{yaml}");
 

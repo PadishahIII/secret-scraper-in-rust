@@ -56,6 +56,14 @@ fn strip_ansi(input: &str) -> String {
     out
 }
 
+fn domains(items: &[&str]) -> HashSet<String> {
+    items.iter().map(|item| (*item).to_string()).collect()
+}
+
+fn children(items: Vec<URLNode>) -> HashSet<URLNode> {
+    items.into_iter().collect()
+}
+
 #[derive(Clone, Default)]
 struct SharedBuffer(Rc<RefCell<Vec<u8>>>);
 
@@ -79,13 +87,12 @@ impl Write for SharedBuffer {
 #[test]
 fn format_url_per_domain_groups_by_root_domain_and_includes_base_url() {
     let formatter = Formatter::new(None);
-    let mut domains = HashSet::new();
-    domains.insert("example.com");
+    let domains = domains(&["example.com"]);
 
     let base = node("https://www.example.com", ResponseStatus::Valid(200));
     let child = node("https://api.example.com/users", ResponseStatus::Valid(200));
     let mut urls = HashMap::new();
-    urls.insert(base, vec![child]);
+    urls.insert(base, children(vec![child]));
 
     let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::URL));
 
@@ -98,14 +105,13 @@ fn format_url_per_domain_groups_by_root_domain_and_includes_base_url() {
 #[test]
 fn format_url_per_domain_places_external_root_domains_in_other_last() {
     let formatter = Formatter::new(None);
-    let mut domains = HashSet::new();
-    domains.insert("example.com");
+    let domains = domains(&["example.com"]);
 
     let base = node("https://www.example.com", ResponseStatus::Valid(200));
     let first_party = node("https://cdn.example.com/app.js", ResponseStatus::Valid(200));
     let external = node("https://cdn.other.net/lib.js", ResponseStatus::Valid(200));
     let mut urls = HashMap::new();
-    urls.insert(base, vec![first_party, external]);
+    urls.insert(base, children(vec![first_party, external]));
 
     let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::JS));
 
@@ -123,14 +129,13 @@ fn format_url_per_domain_places_external_root_domains_in_other_last() {
 #[test]
 fn format_url_per_domain_counts_only_filtered_urls() {
     let formatter = Formatter::new(None);
-    let mut domains = HashSet::new();
-    domains.insert("example.com");
+    let domains = domains(&["example.com"]);
 
     let base = node("https://example.com", ResponseStatus::Valid(200));
     let ok = node("https://example.com/ok", ResponseStatus::Valid(200));
     let missing = node("https://example.com/missing", ResponseStatus::Valid(404));
     let mut urls = HashMap::new();
-    urls.insert(base, vec![ok, missing]);
+    urls.insert(base, children(vec![ok, missing]));
 
     let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::URL));
 
@@ -143,13 +148,12 @@ fn format_url_per_domain_counts_only_filtered_urls() {
 #[test]
 fn format_url_per_domain_filters_ignored_urls() {
     let formatter = Formatter::new(None);
-    let mut domains = HashSet::new();
-    domains.insert("example.com");
+    let domains = domains(&["example.com"]);
 
     let base = node("https://example.com", ResponseStatus::Valid(200));
     let ignored = node("https://example.com/image.png", ResponseStatus::Ignore);
     let mut urls = HashMap::new();
-    urls.insert(base, vec![ignored]);
+    urls.insert(base, children(vec![ignored]));
 
     let output = strip_ansi(&formatter.format_url_per_domain(&domains, &urls, URLType::URL));
 
@@ -181,17 +185,17 @@ fn output_csv_writes_secret_and_hierarchy_urls() {
         Some("application/json"),
         Some("Config"),
     );
-    let secrets = vec![Secret {
+    let secrets = HashSet::from([Secret {
         secret_type: "API Key".to_string(),
         data: "secret-value".to_string(),
-    }];
+    }]);
 
-    let children = vec![child];
+    let children = children(vec![child]);
     let mut urls = HashMap::new();
-    urls.insert(base, &children);
+    urls.insert(base, children);
 
     let mut url_secrets = HashMap::new();
-    url_secrets.insert(secret_only, &secrets);
+    url_secrets.insert(secret_only, secrets);
 
     let output = SharedBuffer::default();
     let count = output_csv(Box::new(output.clone()), &urls, &url_secrets).expect("csv output");

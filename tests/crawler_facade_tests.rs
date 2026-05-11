@@ -198,16 +198,13 @@ fn handle_connection(
         .collect::<HashMap<_, _>>();
     log.record(path.clone(), headers);
 
-    let response = routes
-        .get(&path)
-        .cloned()
-        .unwrap_or_else(|| ResponseSpec {
-            status: 404,
-            reason: "Not Found",
-            content_type: "text/plain",
-            body: "not found".to_string(),
-            location: None,
-        });
+    let response = routes.get(&path).cloned().unwrap_or_else(|| ResponseSpec {
+        status: 404,
+        reason: "Not Found",
+        content_type: "text/plain",
+        body: "not found".to_string(),
+        location: None,
+    });
     let mut raw = format!(
         "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n",
         response.status,
@@ -232,21 +229,29 @@ fn crawler_config(url: Option<String>) -> Config {
         timeout: Duration::from_secs(2),
         min_request_interval: Duration::ZERO,
         max_concurrency_per_domain: 8,
-        url_find_rules: vec![Rule::new("path".to_string(), r#""(/[A-Za-z0-9_.?=&%-]+)""#)
-            .expect("url rule")],
-        js_find_rules: vec![Rule::new("js".to_string(), r#""(/[A-Za-z0-9_.?=&%-]+\.js)""#)
-            .expect("js rule")],
-        custom_rules: vec![Rule::new("secret".to_string(), r"SECRET_[A-Z0-9]+").expect("secret rule")],
+        url_find_rules: vec![
+            Rule::new("path".to_string(), r#""(/[A-Za-z0-9_.?=&%-]+)""#).expect("url rule"),
+        ],
+        js_find_rules: vec![
+            Rule::new("js".to_string(), r#""(/[A-Za-z0-9_.?=&%-]+\.js)""#).expect("js rule"),
+        ],
+        custom_rules: vec![
+            Rule::new("secret".to_string(), r"SECRET_[A-Z0-9]+").expect("secret rule"),
+        ],
         ..Config::default()
     }
 }
 
 fn run_facade(config: Config) {
     assert!(!config.url_find_rules.is_empty(), "url rules should be set");
-    assert!(!config.custom_rules.is_empty(), "custom rules should be set");
+    assert!(
+        !config.custom_rules.is_empty(),
+        "custom rules should be set"
+    );
     thread::spawn(move || {
-        let mut facade = CrawlerFacade::new(config).expect("crawler facade");
-        facade.start();
+        Box::new(CrawlerFacade::new(config).expect("crawler facade"))
+            .scan()
+            .expect("scan crawler facade");
     })
     .join()
     .expect("facade thread");
@@ -438,10 +443,7 @@ fn scenario_sends_custom_headers() {
 fn scenario_ignores_non_processable_content_without_crawling_body_links() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
-        (
-            "/binary".to_string(),
-            ResponseSpec::binary(),
-        ),
+        ("/binary".to_string(), ResponseSpec::binary()),
         ("/hidden".to_string(), ResponseSpec::html("hidden")),
     ]));
     let mut config = crawler_config(Some(server.url("/binary")));
@@ -468,16 +470,18 @@ fn scenario_processes_json_with_regex_discovered_links() {
     run_facade(config);
 
     assert_eq!(server.log.count("/json"), 1, "{:?}", server.log.paths());
-    assert_eq!(server.log.count("/from-json"), 1, "{:?}", server.log.paths());
+    assert_eq!(
+        server.log.count("/from-json"),
+        1,
+        "{:?}",
+        server.log.paths()
+    );
 }
 
 fn scenario_respects_redirect_policy() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
-        (
-            "/redirect".to_string(),
-            ResponseSpec::redirect("/final"),
-        ),
+        ("/redirect".to_string(), ResponseSpec::redirect("/final")),
         ("/final".to_string(), ResponseSpec::html("final")),
     ]));
     let mut config = crawler_config(Some(server.url("/redirect")));

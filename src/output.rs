@@ -4,7 +4,6 @@ use std::{
     io,
     path::PathBuf,
 };
-use url::Url;
 
 use crate::{
     cli::StatusRangeRule,
@@ -18,13 +17,13 @@ use owo_colors::OwoColorize;
 
 pub static UNKNOWN_HOST: &str = "UNKNOWN_HOST";
 pub enum URLType {
-    URL,
+    Url,
     JS,
 }
 impl AsRef<str> for URLType {
     fn as_ref(&self) -> &str {
         match self {
-            URLType::URL => "URL",
+            URLType::Url => "URL",
             URLType::JS => "JS",
         }
     }
@@ -32,7 +31,7 @@ impl AsRef<str> for URLType {
 impl Display for URLType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            URLType::URL => write!(f, "URL"),
+            URLType::Url => write!(f, "URL"),
             URLType::JS => write!(f, "JS"),
         }
     }
@@ -220,7 +219,10 @@ impl Formatter {
             res.join("\n")
         }
     }
-    pub fn format_local_secrets(&self, path_secrets: &HashMap<&PathBuf, &Vec<Secret>>) -> String {
+    pub fn format_local_secrets(
+        &self,
+        path_secrets: &HashMap<&PathBuf, HashSet<Secret>>,
+    ) -> String {
         let res = path_secrets
             .iter()
             .filter_map(|(path, secrets)| {
@@ -318,7 +320,7 @@ pub fn output_csv(
             count += 1;
         }
         for url in children {
-            if url_secrets.get(&url).is_none() {
+            if url_secrets.get(url).is_none() {
                 writer.write_record([
                     url.url.to_owned(),
                     url.title.clone().unwrap_or_default(),
