@@ -12,6 +12,8 @@ Todo:
 - [x] Add examples
 - [x] Resolve lint warnings
 - [x] Update doc
-- [x] Implement graceful shutdown
+- [ ] Implement graceful shutdown
+- [ ] Add clap CLI tests
 - [ ] Test performance and compare with the python version; use `time` tool
+    - `gtime --verbose ./target/release/secret_scraper -u https://www.baidu.com --detail --allow-domains www.baidu.com  -o 1.csv `
 - [ ] Publish
