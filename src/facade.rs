@@ -29,6 +29,11 @@ use crate::{
     urlparser::URLParserBuilder,
 };
 
+fn notify_ctrl_c_shutdown(shutdown: CancellationToken) {
+    let _ = crate::logging::notify_shutdown(io::stdout());
+    shutdown.cancel();
+}
+
 #[async_trait]
 /// Common interface implemented by high-level scan facades.
 pub trait ScanFacade {
@@ -104,7 +109,7 @@ impl<'a> ScanFacade for FileScannerFacade<'a> {
             .block_on(async {
                 task::spawn(async move {
                     if signal::ctrl_c().await.is_ok() {
-                        shutdown.cancel();
+                        notify_ctrl_c_shutdown(shutdown);
                     }
                 });
                 match self.scanner.scan().await {
@@ -281,7 +286,7 @@ impl ScanFacade for CrawlerFacade {
         self.system.block_on(async {
             task::spawn(async move {
                 if signal::ctrl_c().await.is_ok() {
-                    shutdown.cancel();
+                    notify_ctrl_c_shutdown(shutdown);
                     tracker.close();
                     tracker.wait().await;
                 }

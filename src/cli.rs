@@ -69,7 +69,8 @@ pub struct CliConfigLayer {
         short = 'd',
         long,
         help = "Domain white list, wildcard(*) is supported, separated by commas, e.g. *.example.com, example*",
-        value_parser = parse_domain_filter,
+        value_delimiter = ',',
+        // value_parser = parse_domain_filter,
     )]
     /// Domain allow-list patterns.
     pub allow_domains: Option<Vec<String>>,
@@ -78,7 +79,8 @@ pub struct CliConfigLayer {
         short = 'D',
         long,
         help = "Domain black list, wildcard(*) is supported, separated by commas, e.g. *.example.com, example*",
-        value_parser = parse_domain_filter,
+        value_delimiter = ',',
+        // value_parser = parse_domain_filter,
     )]
     /// Domain block-list patterns.
     pub disallow_domains: Option<Vec<String>>,
@@ -136,6 +138,7 @@ pub struct CliConfigLayer {
         short,
         long = "status",
         help = "Filter response status to display, seperated by commas, e.g. 200,300-400",
+        value_delimiter = ',',
         value_parser = parse_status_range,
     )]
     /// Response status display filter.
@@ -687,6 +690,7 @@ impl FromStr for Mode {
 }
 
 /// Parse a comma-separated domain filter list.
+#[allow(dead_code)]
 pub fn parse_domain_filter(s: &str) -> Result<Vec<String>> {
     s.split(',')
         .map(str::trim)
