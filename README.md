@@ -15,44 +15,40 @@ The project is not published as a public package yet. Build, run, and use it fro
 - Write crawler results as CSV and local scan results as YAML.
 - Use as a Rust library through `Config`, `CrawlerFacade`, `FileScannerFacade`, `ScanFacade`, and typed `SecretScraperError` results.
 
-## Build From Source
+## Architecture
 
-```bash
-cargo build
-```
+![architecture diagram](docs/architecture.png)
 
-For an optimized binary:
+## Showcase
 
-```bash
-cargo build --release
-```
+[![showcase video](docs/showcase-thumb.png)](docs/showcase.mp4)
 
-To install the current checkout locally:
+## Install
 
 ```bash
 cargo install --path .
 ```
 
+This builds an optimized release binary and installs it as `secret_scraper` in your Cargo bin directory (typically `~/.cargo/bin`). Make sure that directory is on your `PATH`.
+
+For development without installing, you can still use `cargo run --` in place of `secret_scraper` throughout the examples below.
+
 ## CLI Usage
 
-Run the current help text:
-
 ```bash
-cargo run -- --help
+secret_scraper --help
 ```
-
-After `cargo install --path .`, replace `cargo run --` with `secret_scraper`.
 
 ### Crawl One URL
 
 ```bash
-cargo run -- --url https://example.com
+secret_scraper --url https://example.com
 ```
 
 ### Crawl Multiple URLs
 
 ```bash
-cargo run -- --url-file urls.txt
+secret_scraper --url-file urls.txt
 ```
 
 `urls.txt` is newline-delimited. Blank lines are ignored.
@@ -66,7 +62,7 @@ https://example.org/
 ### Scan Local Files
 
 ```bash
-cargo run -- --local ./samples
+secret_scraper --local ./samples
 ```
 
 If `--local` points to a file, SecretScraper scans that file. If it points to a directory, files are scanned recursively.
@@ -76,26 +72,26 @@ If `--local` points to a file, SecretScraper scans that file. If it points to a 
 Crawler output is CSV:
 
 ```bash
-cargo run -- --url https://example.com --outfile crawl.csv
+secret_scraper --url https://example.com --outfile crawl.csv
 ```
 
 Local file scan output is YAML:
 
 ```bash
-cargo run -- --local ./samples --outfile local-scan.yml
+secret_scraper --local ./samples --outfile local-scan.yml
 ```
 
 ### Crawl Modes And Depth
 
 ```bash
-cargo run -- --url https://example.com --mode normal
-cargo run -- --url https://example.com --mode thorough
+secret_scraper --url https://example.com --mode normal
+secret_scraper --url https://example.com --mode thorough
 ```
 
 `normal` uses a crawl depth preset of `1`. `thorough` uses a crawl depth preset of `2`. If `--max-depth` is set, it overrides the mode preset.
 
 ```bash
-cargo run -- --url https://example.com --mode thorough --max-depth 4
+secret_scraper --url https://example.com --mode thorough --max-depth 4
 ```
 
 `--max-depth 0` fetches only the seed URL(s).
@@ -105,10 +101,10 @@ cargo run -- --url https://example.com --mode thorough --max-depth 4
 Boolean CLI options currently take explicit `true` or `false` values:
 
 ```bash
-cargo run -- --url https://example.com --detail true
-cargo run -- --url https://example.com --validate true
-cargo run -- --url https://example.com --follow-redirect true
-cargo run -- --url https://example.com --hide-regex true
+secret_scraper --url https://example.com --detail true
+secret_scraper --url https://example.com --validate true
+secret_scraper --url https://example.com --follow-redirect true
+secret_scraper --url https://example.com --hide-regex true
 ```
 
 `--validate true` sends follow-up requests for discovered links to verify HTTP status. This can add requests even for links that are not crawled because of depth limits.
@@ -118,8 +114,8 @@ cargo run -- --url https://example.com --hide-regex true
 Allow-list and block-list filters accept comma-separated wildcard patterns:
 
 ```bash
-cargo run -- --url https://example.com --allow-domains '*.example.com,example.org'
-cargo run -- --url https://example.com --disallow-domains '*.gov,logout.example.com'
+secret_scraper --url https://example.com --allow-domains '*.example.com,example.org'
+secret_scraper --url https://example.com --disallow-domains '*.gov,logout.example.com'
 ```
 
 Filters apply to seed URLs and discovered URLs.
@@ -129,13 +125,13 @@ Filters apply to seed URLs and discovered URLs.
 Use `--status` with exact status codes and inclusive ranges:
 
 ```bash
-cargo run -- --url https://example.com --status 200,300-399
+secret_scraper --url https://example.com --status 200,300-399
 ```
 
 ### Headers, Cookie, User Agent, Proxy, And Rate Limits
 
 ```bash
-cargo run -- \
+secret_scraper \
   --url https://example.com \
   --ua "SecretScraper/0.1" \
   --cookie "session=abc" \
@@ -148,7 +144,7 @@ cargo run -- \
 
 ## CLI Options Summary
 
-The authoritative list is `cargo run -- --help`. Current key options are:
+The authoritative list is `secret_scraper --help`. Current key options are:
 
 - `--url`, `-u`: crawl one seed URL.
 - `--url-file`, `-f`: crawl seed URLs from a newline-delimited file.
@@ -192,25 +188,25 @@ The default config file path is `setting.yaml`. When that file does not exist, t
 Create a config file with the default path:
 
 ```bash
-cargo run --
+secret_scraper
 ```
 
 Edit `setting.yaml`, then run the CLI again with the same default path:
 
 ```bash
-cargo run --
+secret_scraper
 ```
 
 Use a different config file with `--config`:
 
 ```bash
-cargo run -- --config showcase.yaml
+secret_scraper --config showcase.yaml
 ```
 
 CLI values override values loaded from YAML. For example, this uses all values from `showcase.yaml` except `url` and `outfile`:
 
 ```bash
-cargo run -- --config showcase.yaml --url https://override.example --outfile override.csv
+secret_scraper --config showcase.yaml --url https://override.example --outfile override.csv
 ```
 
 ### Showcase Configuration

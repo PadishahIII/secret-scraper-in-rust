@@ -6,12 +6,12 @@ Todo:
     - [x] write tests
 - [x] Implement rate limiter
 - [x] Implement output formatter, tested
-- [ ] implement graceful shutdown
 - [x] Implement lib interface: builder...
 - [x] Add unit tests
 - [x] Add integration tests
 - [x] Add examples
 - [x] Resolve lint warnings
-- [ ] Update doc
+- [x] Update doc
+- [ ] Implement graceful shutdown
 - [ ] Test performance and compare with the python version; use `time` tool
 - [ ] Publish
