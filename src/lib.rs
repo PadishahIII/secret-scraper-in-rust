@@ -130,12 +130,16 @@
 //!
 //! let mut config = Config::default();
 //! config.url_find_rules.push(
-//!     Rule::new("api_path".into(), r#""/api/v[0-9]+/[^"]+""#).unwrap()
+//!     Rule::new_with_group("api_path".into(), r#""(/api/v[0-9]+/[^"]+)""#, true).unwrap()
 //! );
 //! config.custom_rules.push(
 //!     Rule::new("Custom Token".into(), r"TOKEN_[A-Z0-9]{16}").unwrap()
 //! );
 //! ```
+//!
+//! `Rule::new` emits the full regex match. Use
+//! [`Rule::new_with_group`](cli::Rule::new_with_group) when capture groups
+//! should be emitted instead, which is usually what URL-discovery rules need.
 //!
 //! Rules added via `Config::default()` start empty. When using
 //! `Config::default_with_rules()`, your custom rules are appended to the

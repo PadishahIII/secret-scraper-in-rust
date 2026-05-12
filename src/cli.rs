@@ -252,6 +252,9 @@ pub struct RuleItem {
     pub regex: String,
     /// Whether this rule should be loaded.
     pub loaded: bool,
+    /// Whether captures groups should be emitted instead of the full match.
+    #[serde(default)]
+    pub group: bool,
 }
 impl LoadFromYaml<FileConfigLayer> for FileConfigLayer {}
 
@@ -377,38 +380,51 @@ pub struct Rule {
     pub name: String,
     /// Compiled regex pattern.
     pub regex: Regex,
+    /// whether use regex group or not
+    pub group: bool,
 }
 impl Rule {
     /// Compile a new named regex rule.
     pub fn new(name: String, regex: &str) -> Result<Self, regex::Error> {
+        Self::new_with_group(name, regex, false)
+    }
+
+    /// Compile a new named regex rule with explicit capture-group behavior.
+    pub fn new_with_group(name: String, regex: &str, group: bool) -> Result<Self, regex::Error> {
         Ok(Self {
             name,
             regex: Regex::new(regex)?,
+            group,
         })
     }
 }
 impl Config {
     fn default_url_find_rules() -> Vec<Rule> {
         vec![
-                            Rule::new(
+                            Rule::new_with_group(
                 "builtin_1".to_string(),
-                r#"["'‘“`]\s{0,6}(https{0,1}:[-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100}?)\s{0,6}["''‘“`]'"#,
+                r#"["'‘“”’`]\s{0,6}(https?:\/\/[^\s"'‘“”’`]{2,100})\s{0,6}["'‘“”’`]"#,
+                true,
             ).unwrap(),
-                Rule::new(
+                Rule::new_with_group(
                 "builtin_2".to_string(),
-                r#"=\s{0,6}(https{0,1}:[-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100})"#,
+                r#"=\s{0,6}(https?:\/\/[^\s"'‘“”’`]{2,100})"#,
+                true,
             ).unwrap(),
-                Rule::new(
+                Rule::new_with_group(
                 "builtin_3".to_string(),
-                r#"["'‘“`]\s{0,6}([#,.]{0,2}/[-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100}?)\s{0,6}["''‘“`]"#,
+                r#"["'‘“`]\s{0,6}([#,.]{0,2}\/[a-zA-Z0-9()@:%_\+.~#?&\/={}]{2,100}?)\s{0,6}["''‘“`]"#,
+                true,
             ).unwrap(),
-                Rule::new(
+                Rule::new_with_group(
                 "builtin_4".to_string(),
-                r#""([-a-zA-Z0-9()@:%_\+.~#?&//={}]+?[/]{1}[-a-zA-Z0-9()@:%_\+.~#?&//={}]+?)""#,
+                r#""([a-zA-Z0-9()@:%_\+.~#?&\/={}]+?[\/]{1}[a-zA-Z0-9()@:%_\+.~#?&\/={}]+?)""#,
+                true,
             ).unwrap(),
-                Rule::new(
+                Rule::new_with_group(
                 "builtin_5".to_string(),
-                r#"href\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100})|action\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100})"#,
+                r#"href\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([a-zA-Z0-9()@:%_\+.~#?&\/={}]{2,100})|action\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([a-zA-Z0-9()@:%_\+.~#?&\/={}]{2,100})"#,
+                true,
             ).unwrap(),
 
 
@@ -416,37 +432,42 @@ impl Config {
     }
     fn default_js_find_rules() -> Vec<Rule> {
         vec![
-                        Rule::new(
+                        Rule::new_with_group(
                 "builtin_6".to_string(),
-                r#"(https{0,1}:[-a-zA-Z0-9（）@:%_\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\+.~#?&//=]{3}[.]js)"#,
+                r#"(https{0,1}:[-a-zA-Z0-9()@:%_\+.~#?&\/=]{2,100}?[-a-zA-Z0-9()@:%_\+.~#?&\/=]{3}[.]js)"#,
+                true,
             ).unwrap(),
-                Rule::new(
+                Rule::new_with_group(
                 "builtin_7".to_string(),
-                r#"["'‘“`]\s{0,6}(/{0,1}[-a-zA-Z0-9（）@:%_\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\+.~#?&//=]{3}[.]js)"#,
+                r#"["'‘“`]\s{0,6}(\/{0,1}[-a-zA-Z0-9()@:%_\+.~#?&\/=]{2,100}?[-a-zA-Z0-9()@:%_\+.~#?&\/=]{3}[.]js)"#,
+                true,
             ).unwrap(),
-                Rule::new(
+                Rule::new_with_group(
                 "builtin_8".to_string(),
-                r#"=\s{0,6}[",',’,”]{0,1}\s{0,6}(/{0,1}[-a-zA-Z0-9（）@:%_\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\+.~#?&//=]{3}[.]js)"#,
+                r#"=\s{0,6}[",',’,”]{0,1}\s{0,6}(\/{0,1}[-a-zA-Z0-9()@:%_\+.~#?&\/=]{2,100}?[-a-zA-Z0-9()@:%_\+.~#?&\/=]{3}[.]js)"#,
+                true,
             ).unwrap(),
         ]
     }
     fn default_custom_rules() -> Vec<Rule> {
         vec![
-                            Rule::new(
+                Rule::new(
                 "Swagger".to_string(),
-                r#"\b[\w/]+?((swagger-ui.html)|(\"swagger\":)|(Swagger UI)|(swaggerUi)|(swaggerVersion))\b"#,
+                r#"(?:\b[\w\/]*swagger-ui\.html\b|"\s*swagger"\s*:|\bSwagger UI\b|\bswaggerUi\b|\bswaggerVersion\b)"#,
             ).unwrap(),
                 Rule::new(
                 "ID Card".to_string(),
-                r#"\b((\d{8}(0\d|10|11|12)([0-2]\d|30|31)\d{3}\$)|(\d{6}(18|19|20)\d{2}(0[1-9]|10|11|12)([0-2]\d|30|31)\d{3}(\d|X|x)))\b"#,
+                r#"\b(\d{8}(?:0\d|10|11|12)(?:[0-2]\d|30|31)\d{3}\$|\d{6}(?:18|19|20)\d{2}(?:0[1-9]|10|11|12)(?:[0-2]\d|30|31)\d{3}(?:\d|X|x))\b"#,
             ).unwrap(),
-                Rule::new(
+                Rule::new_with_group(
                 "Phone".to_string(),
                 r#"\b((?:(?:\+|00)86)?1(?:(?:3[\d])|(?:4[5-79])|(?:5[0-35-9])|(?:6[5-7])|(?:7[0-8])|(?:8[\d])|(?:9[189]))\d{8})\b"#,
+                true,
             ).unwrap(),
-                Rule::new(
+                Rule::new_with_group(
                 "JS Map".to_string(),
-                r#"\b([\w/]+?\.js\.map)"#,
+                r#"\b([\w\/]+?\.js\.map)"#,
+                true,
             ).unwrap(),
                 Rule::new(
                 "URL as a value".to_string(),
@@ -526,10 +547,11 @@ impl Serialize for Rule {
     where
         S: serde::Serializer,
     {
-        let mut rule = serializer.serialize_map(Some(3))?;
+        let mut rule = serializer.serialize_map(Some(4))?;
         rule.serialize_entry("name", &self.name)?;
         rule.serialize_entry("regex", &self.regex.to_string())?;
         rule.serialize_entry("loaded", &true)?;
+        rule.serialize_entry("group", &self.group)?;
         rule.end()
     }
 }
@@ -621,23 +643,27 @@ impl Config {
         }
         self.apply_cli_layer(layer.cli_options);
         let mut errors = vec![];
-        let mut add_rules = |rules: Vec<String>, name_prefix| {
+        let mut compile_rules = |rules: Vec<String>, name_prefix| {
+            let mut compiled = Vec::new();
             for (i, s) in rules.iter().enumerate() {
-                match Rule::new(format!("{name_prefix}_{i}"), s) {
+                match Rule::new_with_group(format!("{name_prefix}_{i}"), s, true) {
                     Ok(r) => {
-                        self.js_find_rules.push(r);
+                        compiled.push(r);
                     }
                     Err(e) => {
                         errors.push(e);
                     }
                 }
             }
+            compiled
         };
-        add_rules(layer.js_find_rules, "jsFind");
-        add_rules(layer.url_find_rules, "urlFind");
+        self.js_find_rules
+            .extend(compile_rules(layer.js_find_rules, "jsFind"));
+        self.url_find_rules
+            .extend(compile_rules(layer.url_find_rules, "urlFind"));
         if let Some(r) = layer.rules {
             for item in r.iter().filter(|i| i.loaded) {
-                match Rule::new(item.name.clone(), &item.regex) {
+                match Rule::new_with_group(item.name.clone(), &item.regex, item.group) {
                     Ok(rule) => {
                         self.custom_rules.push(rule);
                     }

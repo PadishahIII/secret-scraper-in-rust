@@ -8,8 +8,10 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use scraper::{Html, Selector};
 use serde::Serialize;
+use tokio_util::context;
 use url::Url;
 use urlencoding::decode;
+use urlparse::urlparse;
 
 use crate::handler::Handler;
 
@@ -175,52 +177,46 @@ impl<H: Handler> URLParser<H> {
             }
         }
         for mut href in hrefs {
-            // TODO: disable temporarily to compare performance
-            // if let Ok(h) = decode(&href) {
-            //     href = h.into_owned();
-            // }
-            match Url::parse(&href) {
-                Ok(url) => {
-                    if is_static_resource(url.path()) {
-                        continue;
-                    }
-                    if sanitize_url(&href).is_empty() || is_localhost(&url) {
-                        continue;
-                    }
-                    if !url.scheme().is_empty()
-                        && url.host().is_some()
-                        && !url.host_str().unwrap_or_default().is_empty()
-                        && ["http", "https"].contains(&url.scheme())
-                    {
-                        // a valid url
-                        let node = URLNodeBuilder::default()
-                            .url(url.to_string())
-                            .depth(base_url.depth + 1)
-                            .build()?;
-                        found_urls.insert(node);
-                    } else {
-                        // invalid url, derive host and scheme from base_url
-                        let url_obj = base_url.url_obj.clone();
-                        let mut url_obj = url_obj.join(url.path()).unwrap_or(url_obj).to_owned();
-                        url_obj.set_query(url.query());
-                        url_obj.set_fragment(url.fragment());
-                        let node = URLNodeBuilder::default()
-                            .url(url_obj.to_string())
-                            .depth(base_url.depth + 1)
-                            .build()?;
-                        found_urls.insert(node);
-                    }
-                }
-                Err(_) => {
-                    // assume [`href`] is always a path here
-                    let url_obj = base_url.url_obj.clone();
-                    let url_obj = url_obj.join(&href).unwrap_or(url_obj).to_owned();
-                    let node = URLNodeBuilder::default()
-                        .url(url_obj.to_string())
-                        .depth(base_url.depth + 1)
-                        .build()?;
-                    found_urls.insert(node);
-                }
+            href = href.trim_matches('"').trim_matches('\'').to_string();
+            if is_malformed(&href) {
+                continue;
+            }
+            let mut url = urlparse(&href);
+            if is_static_resource(&url.path) {
+                continue;
+            }
+            href = sanitize_url(&href);
+            if !should_resolve(&href) {
+                continue;
+            }
+            url = urlparse(href);
+            if is_localhost(&url.netloc) {
+                continue;
+            }
+            if !url.scheme.is_empty()
+                && !url.netloc.is_empty()
+                && ["http", "https"].contains(&url.scheme.as_str())
+            {
+                // a valid url
+                let node = URLNodeBuilder::default()
+                    .url(url.unparse())
+                    .depth(base_url.depth + 1)
+                    .build()?;
+                found_urls.insert(node);
+            } else {
+                // invalid url, derive host and scheme from base_url
+                let mut url_obj = base_url
+                    .url_obj
+                    .join(&url.path)
+                    .unwrap_or(base_url.url_obj.clone())
+                    .to_owned();
+                url_obj.set_query(url.query.as_deref());
+                url_obj.set_fragment(url.fragment.as_deref());
+                let node = URLNodeBuilder::default()
+                    .url(url_obj.to_string())
+                    .depth(base_url.depth + 1)
+                    .build()?;
+                found_urls.insert(node);
             }
         }
         Ok(found_urls)
@@ -250,9 +246,8 @@ fn sanitize_url(url: &str) -> String {
     }
     url.to_owned()
 }
-fn is_localhost(url: &Url) -> bool {
-    let u = url.host_str().unwrap_or_default();
-    u.starts_with("127.0.0.1") || u.starts_with("localhost")
+fn is_localhost(netloc: &str) -> bool {
+    netloc.starts_with("127.0.0.1") || netloc.starts_with("localhost")
 }
 /// Extract and normalize `<title>` text from an HTML response body.
 pub fn response_title(response_str: &str) -> Result<String> {
@@ -265,4 +260,28 @@ pub fn response_title(response_str: &str) -> Result<String> {
         .map(|s: String| s.replace("\n", " ").replace("\r", " ").trim().to_string())
         .collect::<Vec<String>>()
         .join("|"))
+}
+// /// return (host, port, netloc)
+// pub fn url_to_netloc(url: &Url) -> Option<String> {
+//     let host = url.host_str()?.to_string();
+//     url.port_or_known_default()
+//         .map(|p| format!("{}:{}", host, p).to_string())
+// }
+fn should_resolve(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with("javascript:")
+        && !s.starts_with("mailto:")
+        && !s.starts_with("tel:")
+}
+fn is_malformed(href: &str) -> bool {
+    let href = href.to_lowercase();
+    if let Ok(href) = decode(&href) {
+        href.contains("'")
+            || href.contains('"')
+            || href.contains("href=")
+            || href.contains("src=")
+            || href.contains("action=")
+    } else {
+        href.contains('"') || href.contains("'") || href.contains("%22") || href.contains("href%3d")
+    }
 }

@@ -312,46 +312,35 @@ pub fn output_csv(
         "Content Type",
         "Secrets",
     ])?;
-    for (url, secrets) in url_secrets {
+    let mut url_set = urls
+        .iter()
+        .flat_map(|(url, children)| {
+            let mut v = vec![url];
+            v.extend(children);
+            v
+        })
+        .collect::<HashSet<&URLNode>>();
+    url_set.extend(url_secrets.keys());
+
+    for url in url_set {
+        let secrets = if let Some(secrets) = url_secrets.get(url) {
+            secrets
+                .iter()
+                .map(|s| format!("{}: {}", s.secret_type, s.data))
+                .collect::<Vec<String>>()
+                .join("\n")
+        } else {
+            "".to_string()
+        };
         writer.write_record([
             url.url.to_owned(),
             url.title.clone().unwrap_or_default(),
             url.response_status.to_string(),
             url.content_length.unwrap_or_default().to_string(),
             url.content_type.clone().unwrap_or_default(),
-            secrets
-                .iter()
-                .map(|s| format!("{}: {}", s.secret_type, s.data))
-                .collect::<Vec<String>>()
-                .join("\n"),
+            secrets,
         ])?;
         count += 1;
-    }
-    for (url, children) in urls {
-        if url_secrets.get(url).is_none() {
-            writer.write_record([
-                url.url.to_owned(),
-                url.title.clone().unwrap_or_default(),
-                url.response_status.to_string(),
-                url.content_length.unwrap_or_default().to_string(),
-                url.content_type.clone().unwrap_or_default(),
-                "".to_string(),
-            ])?;
-            count += 1;
-        }
-        for url in children {
-            if url_secrets.get(url).is_none() {
-                writer.write_record([
-                    url.url.to_owned(),
-                    url.title.clone().unwrap_or_default(),
-                    url.response_status.to_string(),
-                    url.content_length.unwrap_or_default().to_string(),
-                    url.content_type.clone().unwrap_or_default(),
-                    "".to_string(),
-                ])?;
-                count += 1;
-            }
-        }
     }
     writer.flush()?;
     Ok(count)

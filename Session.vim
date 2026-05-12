@@ -13,12 +13,29 @@ if &shortmess =~ 'A'
 else
   set shortmess=aoO
 endif
-badd +22 src/output.rs
-badd +0 ./
+badd +347 src/output.rs
+badd +1 ./
+badd +491 src/scraper/crawler.rs
+badd +163 /Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust/tests/output_tests.rs
+badd +651 /Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust/tests/config_tests.rs
+badd +174 src/scraper/worker.rs
+badd +41 src/rate_limiter.rs
+badd +32 Cargo.toml
+badd +344 tests/crawler_facade_tests.rs
+badd +148 /Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust/tests/file_scanner_facade_tests.rs
+badd +26 setting.yaml
+badd +263 src/urlparser.rs
+badd +140 tests/urlparser_test.rs
+badd +55 src/cli.rs
+badd +21 /Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust/src/handler.rs
+badd +1582 ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/lib.rs
+badd +194 ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/urlparse-0.7.3/src/url.rs
+badd +294 /Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust/tests/binary_tests.rs
+badd +534 /Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust/tests/cli_tests.rs
 argglobal
 %argdel
 $argadd ./
-edit src/output.rs
+edit src/urlparser.rs
 let s:save_splitbelow = &splitbelow
 let s:save_splitright = &splitright
 set splitbelow splitright
@@ -37,6 +54,7 @@ set winminwidth=0
 set winwidth=1
 wincmd =
 argglobal
+balt ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/url-2.5.8/src/lib.rs
 setlocal foldmethod=manual
 setlocal foldexpr=0
 setlocal foldmarker={{{,}}}
@@ -47,18 +65,19 @@ setlocal foldnestmax=20
 setlocal foldenable
 silent! normal! zE
 let &fdl = &fdl
-let s:l = 22 - ((6 * winheight(0) + 6) / 13)
+let s:l = 264 - ((22 * winheight(0) + 16) / 33)
 if s:l < 1 | let s:l = 1 | endif
 keepjumps exe s:l
 normal! zt
-keepjumps 22
-normal! 032|
+keepjumps 264
+normal! 049|
 wincmd w
 argglobal
 if bufexists(fnamemodify("term:///Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust//16402:zsh;\#toggleterm\#1", ":p")) | buffer term:///Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust//16402:zsh;\#toggleterm\#1 | else | edit term:///Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust//16402:zsh;\#toggleterm\#1 | endif
 if &buftype ==# 'terminal'
   silent file term:///Volumes/T9/machines/Users/jasonharris/Documents/workspace/secret-scraper-in-rust//16402:zsh;\#toggleterm\#1
 endif
+balt src/urlparser.rs
 setlocal foldmethod=manual
 setlocal foldexpr=0
 setlocal foldmarker={{{,}}}
@@ -67,14 +86,13 @@ setlocal foldlevel=0
 setlocal foldminlines=1
 setlocal foldnestmax=20
 setlocal foldenable
-let s:l = 26 - ((25 * winheight(0) + 15) / 30)
+let s:l = 10022 - ((21 * winheight(0) + 15) / 31)
 if s:l < 1 | let s:l = 1 | endif
 keepjumps exe s:l
 normal! zt
-keepjumps 26
-normal! 0
+keepjumps 10022
+normal! 023|
 wincmd w
-2wincmd w
 wincmd =
 tabnext 1
 if exists('s:wipebuf') && len(win_findbuf(s:wipebuf)) == 0 && getbufvar(s:wipebuf, '&buftype') isnot# 'terminal'

@@ -40,13 +40,31 @@ impl Handler for RegexHandler {
             .rules
             .iter()
             .flat_map(|rule| {
-                rule.regex
-                    .find_iter(text)
-                    .map(|m| Secret {
-                        secret_type: rule.name.clone(),
-                        data: m.as_str().to_owned(),
-                    })
-                    .collect::<Vec<Secret>>()
+                if rule.group {
+                    rule.regex
+                        .captures_iter(text)
+                        .flat_map(|caps| {
+                            caps.iter()
+                                .skip(1)
+                                .flatten()
+                                .map(|m| Secret {
+                                    secret_type: rule.name.clone(),
+                                    data: m.as_str().to_string(),
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .collect::<Vec<Secret>>()
+                } else {
+                    rule.regex
+                        .captures_iter(text)
+                        .filter_map(|caps| {
+                            caps.iter().next().flatten().map(|m| Secret {
+                                secret_type: rule.name.clone(),
+                                data: m.as_str().to_string(),
+                            })
+                        })
+                        .collect::<Vec<Secret>>()
+                }
             })
             .collect())
     }

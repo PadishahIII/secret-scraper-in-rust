@@ -240,10 +240,12 @@ fn crawler_config(url: Option<String>) -> Config {
         min_request_interval: Duration::ZERO,
         max_concurrency_per_domain: 8,
         url_find_rules: vec![
-            Rule::new("path".to_string(), r#""(/[A-Za-z0-9_.?=&%-]+)""#).expect("url rule"),
+            Rule::new_with_group("path".to_string(), r#""(/[A-Za-z0-9_.?=&%-]+)""#, true)
+                .expect("url rule"),
         ],
         js_find_rules: vec![
-            Rule::new("js".to_string(), r#""(/[A-Za-z0-9_.?=&%-]+\.js)""#).expect("js rule"),
+            Rule::new_with_group("js".to_string(), r#""(/[A-Za-z0-9_.?=&%-]+\.js)""#, true)
+                .expect("js rule"),
         ],
         custom_rules: vec![
             Rule::new("secret".to_string(), r"SECRET_[A-Z0-9]+").expect("secret rule"),
@@ -295,23 +297,7 @@ fn temp_url_file(contents: &str) -> PathBuf {
 }
 
 #[test]
-fn crawler_facade_integration_scenarios() {
-    scenario_crawls_seed_and_html_children();
-    scenario_reads_multiple_seeds_from_url_file();
-    scenario_applies_max_depth_to_discovered_links();
-    scenario_validates_found_but_not_crawled_frontier_urls();
-    scenario_skips_dangerous_paths();
-    scenario_applies_disallow_domain_filter_to_seed();
-    scenario_sends_custom_headers();
-    scenario_ignores_non_processable_content_without_crawling_body_links();
-    scenario_processes_json_with_regex_discovered_links();
-    scenario_respects_redirect_policy();
-    scenario_validate_marks_dangerous_frontier_urls_ignored();
-    scenario_validate_marks_failed_frontier_urls_failed();
-    scenario_max_page_counts_ignored_responses();
-}
-
-fn scenario_crawls_seed_and_html_children() {
+fn crawler_facade_crawls_seed_and_html_children() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -337,7 +323,8 @@ fn scenario_crawls_seed_and_html_children() {
     );
 }
 
-fn scenario_reads_multiple_seeds_from_url_file() {
+#[test]
+fn crawler_facade_reads_multiple_seeds_from_url_file() {
     let _guard = facade_test_guard();
     let first_server = TestServer::start(HashMap::from([(
         "/seed-one".to_string(),
@@ -372,7 +359,8 @@ fn scenario_reads_multiple_seeds_from_url_file() {
     let _ = fs::remove_file(path);
 }
 
-fn scenario_applies_max_depth_to_discovered_links() {
+#[test]
+fn crawler_facade_applies_max_depth_to_discovered_links() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -395,7 +383,8 @@ fn scenario_applies_max_depth_to_discovered_links() {
     assert_eq!(server.log.count("/level-two"), 0);
 }
 
-fn scenario_validates_found_but_not_crawled_frontier_urls() {
+#[test]
+fn crawler_facade_validates_found_but_not_crawled_frontier_urls() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -414,7 +403,8 @@ fn scenario_validates_found_but_not_crawled_frontier_urls() {
     assert_eq!(server.log.count("/validate-me"), 1);
 }
 
-fn scenario_skips_dangerous_paths() {
+#[test]
+fn crawler_facade_skips_dangerous_paths() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -434,7 +424,8 @@ fn scenario_skips_dangerous_paths() {
     assert_eq!(server.log.count("/safe"), 1);
 }
 
-fn scenario_applies_disallow_domain_filter_to_seed() {
+#[test]
+fn crawler_facade_applies_disallow_domain_filter_to_seed() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([(
         "/".to_string(),
@@ -448,7 +439,8 @@ fn scenario_applies_disallow_domain_filter_to_seed() {
     assert_eq!(server.log.total(), 0);
 }
 
-fn scenario_sends_custom_headers() {
+#[test]
+fn crawler_facade_sends_custom_headers() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([(
         "/".to_string(),
@@ -471,14 +463,16 @@ fn scenario_sends_custom_headers() {
     );
 }
 
-fn scenario_ignores_non_processable_content_without_crawling_body_links() {
+#[test]
+fn crawler_facade_ignores_non_processable_content_without_crawling_body_links() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         ("/binary".to_string(), ResponseSpec::binary()),
         ("/hidden".to_string(), ResponseSpec::html("hidden")),
     ]));
     let mut config = crawler_config(Some(server.url("/binary")));
-    config.url_find_rules = vec![Rule::new("hidden".to_string(), r"/hidden").expect("rule")];
+    config.url_find_rules =
+        vec![Rule::new_with_group("hidden".to_string(), r"(/hidden)", true).expect("rule")];
 
     run_facade(config);
 
@@ -486,7 +480,8 @@ fn scenario_ignores_non_processable_content_without_crawling_body_links() {
     assert_eq!(server.log.count("/hidden"), 0);
 }
 
-fn scenario_processes_json_with_regex_discovered_links() {
+#[test]
+fn crawler_facade_processes_json_with_regex_discovered_links() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -496,7 +491,8 @@ fn scenario_processes_json_with_regex_discovered_links() {
         ("/from-json".to_string(), ResponseSpec::html("from json")),
     ]));
     let mut config = crawler_config(Some(server.url("/json")));
-    config.url_find_rules = vec![Rule::new("json_path".to_string(), r"/from-json").expect("rule")];
+    config.url_find_rules =
+        vec![Rule::new_with_group("json_path".to_string(), r"(/from-json)", true).expect("rule")];
 
     run_facade(config);
 
@@ -509,7 +505,8 @@ fn scenario_processes_json_with_regex_discovered_links() {
     );
 }
 
-fn scenario_respects_redirect_policy() {
+#[test]
+fn crawler_facade_respects_redirect_policy() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         ("/redirect".to_string(), ResponseSpec::redirect("/final")),
@@ -524,7 +521,8 @@ fn scenario_respects_redirect_policy() {
     assert_eq!(server.log.count("/final"), 1);
 }
 
-fn scenario_validate_marks_dangerous_frontier_urls_ignored() {
+#[test]
+fn crawler_facade_validate_marks_dangerous_frontier_urls_ignored() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (
@@ -554,7 +552,8 @@ fn scenario_validate_marks_dangerous_frontier_urls_ignored() {
     assert!(matches!(logout.response_status, ResponseStatus::Ignore));
 }
 
-fn scenario_validate_marks_failed_frontier_urls_failed() {
+#[test]
+fn crawler_facade_validate_marks_failed_frontier_urls_failed() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([(
         "/root".to_string(),
@@ -583,7 +582,8 @@ fn scenario_validate_marks_failed_frontier_urls_failed() {
     ));
 }
 
-fn scenario_max_page_counts_ignored_responses() {
+#[test]
+fn crawler_facade_max_page_counts_ignored_responses() {
     let _guard = facade_test_guard();
     let server = TestServer::start(HashMap::from([
         (

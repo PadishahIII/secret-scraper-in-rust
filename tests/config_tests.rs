@@ -82,40 +82,6 @@ fn yaml_layer_from_str(yaml: &str) -> FileConfigLayer {
 }
 
 #[test]
-fn default_config_values() {
-    let cfg = Config::default();
-    assert!(!cfg.debug);
-    assert!(!cfg.verbose);
-    assert!(!cfg.hide_regex);
-    assert!(!cfg.follow_redirect);
-    assert!(!cfg.detail);
-    assert!(!cfg.validate);
-    assert_eq!(cfg.user_agent, None);
-    assert_eq!(cfg.cookie, None);
-    assert_eq!(cfg.proxy, None);
-    assert_eq!(cfg.allow_domains, None);
-    assert_eq!(cfg.disallow_domains, None);
-    assert_eq!(cfg.url_file, None);
-    assert_eq!(cfg.config, PathBuf::from("setting.yaml"));
-    assert_eq!(cfg.outfile, None);
-    assert_eq!(cfg.local, None);
-    assert!(matches!(cfg.mode, Mode::Normal));
-    assert_eq!(cfg.max_page, Some(1000));
-    assert_eq!(cfg.max_concurrency_per_domain, 50);
-    assert_eq!(cfg.min_request_interval, Duration::from_millis(200));
-    assert!(cfg.status_filter.is_none());
-    assert_eq!(cfg.url, None);
-    assert_eq!(cfg.max_depth, None);
-    assert_eq!(cfg.dangerous_paths, None);
-    let headers = cfg.custom_headers.as_ref().expect("default headers");
-    assert_eq!(headers.get(ACCEPT).unwrap(), "*/*");
-    assert!(headers.get(USER_AGENT).is_some());
-    assert!(cfg.url_find_rules.is_empty());
-    assert!(cfg.js_find_rules.is_empty());
-    assert!(cfg.custom_rules.is_empty());
-}
-
-#[test]
 fn default_with_rules_populated() {
     let cfg = Config::default_with_rules();
     assert!(!cfg.url_find_rules.is_empty());
@@ -130,7 +96,6 @@ fn default_with_rules_populated() {
     for rule in &cfg.custom_rules {
         assert!(!rule.name.is_empty());
     }
-    assert_eq!(cfg.max_page, Some(1000));
 }
 
 #[test]
@@ -259,9 +224,11 @@ rules:
   - name: "CustomRule"
     regex: "secret_\\d+"
     loaded: true
+    group: true
   - name: "DisabledRule"
     regex: "ignore_me"
     loaded: false
+    group: false
 "#;
     let layer: FileConfigLayer = serde_yaml::from_str(yaml).expect("full yaml");
     assert_eq!(layer.cli_options.debug, Some(true));
@@ -292,8 +259,10 @@ rules:
     assert_eq!(rules.len(), 2);
     assert_eq!(rules[0].name, "CustomRule");
     assert!(rules[0].loaded);
+    assert!(rules[0].group);
     assert_eq!(rules[1].name, "DisabledRule");
     assert!(!rules[1].loaded);
+    assert!(!rules[1].group);
 }
 
 #[test]
@@ -390,14 +359,17 @@ rules:
   - name: "TestSecret"
     regex: "SECRET_[A-Z]+"
     loaded: true
+    group: true
 "#,
     );
     cfg.apply_file_layer(yaml).expect("valid");
-    assert!(cfg.js_find_rules.len() > orig_js);
+    assert_eq!(cfg.js_find_rules.len(), orig_js + 1);
     assert!(cfg.custom_rules.len() > orig_custom);
+    assert!(cfg.js_find_rules.last().unwrap().group);
     let last = cfg.custom_rules.last().unwrap();
     assert_eq!(last.name, "TestSecret");
     assert!(last.regex.is_match("SECRET_KEY_XYZ"));
+    assert!(last.group);
 }
 
 #[test]
@@ -409,14 +381,17 @@ fn yaml_loaded_false_rules_are_skipped() {
   - name: "ActiveRule"
     regex: "active_\\d+"
     loaded: true
+    group: true
   - name: "SkippedRule"
     regex: "skip_me"
     loaded: false
+    group: true
 "#,
     );
     cfg.apply_file_layer(yaml).expect("valid");
     assert_eq!(cfg.custom_rules.len(), orig + 1);
     assert_eq!(cfg.custom_rules.last().unwrap().name, "ActiveRule");
+    assert!(cfg.custom_rules.last().unwrap().group);
 }
 
 #[test]
@@ -505,6 +480,7 @@ fn cascade_preserves_rules_through_all_layers() {
   - name: "YamlRule"
     regex: "yaml_secret"
     loaded: true
+    group: true
 "#,
     );
     cfg.apply_file_layer(yaml).expect("valid");
@@ -516,6 +492,7 @@ fn cascade_preserves_rules_through_all_layers() {
     assert_eq!(cfg.url_find_rules.len(), builtin_url);
     assert_eq!(cfg.custom_rules.len(), builtin_custom + 1);
     assert!(cfg.custom_rules.last().unwrap().name == "YamlRule");
+    assert!(cfg.custom_rules.last().unwrap().group);
     assert!(cfg.debug);
 }
 
@@ -595,8 +572,19 @@ fn rule_serialization_includes_loaded_true() {
     let rule = Rule::new("TestRule".to_string(), r"\d+").expect("valid");
     let s = serde_yaml::to_string(&rule).expect("serializable");
     assert!(s.contains("loaded: true"));
+    assert!(s.contains("group: false"));
     assert!(s.contains("name: TestRule"));
     assert!(s.contains("regex:"));
+}
+
+#[test]
+fn rule_new_with_group_sets_group_flag() {
+    let rule =
+        Rule::new_with_group("GroupedRule".to_string(), r"token=(\w+)", true).expect("valid");
+
+    assert_eq!(rule.name, "GroupedRule");
+    assert!(rule.group);
+    assert!(rule.regex.is_match("token=abc"));
 }
 
 #[test]

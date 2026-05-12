@@ -266,9 +266,11 @@ rules:
   - name: Custom Secret
     regex: "SECRET_[A-Z0-9]+"
     loaded: true
+    group: false
   - name: Disabled Rule
     regex: "IGNORE_ME"
     loaded: false
+    group: false
 ```
 
 For local scanning, replace the crawl target fields with `local`:
@@ -295,12 +297,13 @@ rules:
   - name: Custom Secret
     regex: "SECRET_[A-Z0-9]+"
     loaded: true
+    group: false
 headers:
   accept: "*/*"
   user-agent: "Mozilla/5.0 ..."
 ```
 
-`urlFind` and `jsFind` are lists of regex strings. `rules` is a list of named secret rules with `regex` and `loaded` fields.
+`urlFind` and `jsFind` are lists of regex strings that emit capture groups. `rules` is a list of named secret rules with `regex`, `loaded`, and `group` fields.
 
 | Field | Default value | Meaning |
 | --- | --- | --- |
@@ -338,8 +341,8 @@ headers:
 - `mode` accepts `Normal`/`Thorough` in generated YAML and `normal`/`thorough` on the CLI.
 - `follow_redirects` is the YAML field name; the CLI flag is `--follow-redirect`.
 - `headers` values are merged onto the default header map. Reusing `accept` or `user-agent` overrides the default values.
-- `urlFind` and `jsFind` entries are plain regex strings. They do not use `name` or `loaded`.
-- `rules` entries use `name`, `regex`, and `loaded`.
+- `urlFind` and `jsFind` entries are plain regex strings. They do not use `name` or `loaded`, and they emit capture groups by default.
+- `rules` entries use `name`, `regex`, `loaded`, and optional `group`. `group: true` emits capture groups instead of the full match; omitted `group` defaults to `false`.
 - `urlFind`, `jsFind`, and loaded `rules` entries are appended to any existing rules when you apply a YAML layer to `Config::default_with_rules()`.
 - `rules` entries with `loaded: false` are skipped.
 - Invalid regex patterns or invalid header names/values cause configuration loading to fail.

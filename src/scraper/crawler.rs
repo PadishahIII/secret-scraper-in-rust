@@ -312,6 +312,7 @@ where
             });
             Ok(())
         })?;
+        println!("Found {} seeds", self.state.working_queue.len());
         loop {
             // producer
             while !self.shutdown.is_cancelled() {

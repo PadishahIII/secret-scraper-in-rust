@@ -11,7 +11,7 @@ mode: Normal
 max_page: 1000
 max_depth: null
 max_concurrent_per_domain: 5
-min_request_interval: 0.1
+min_request_interval: 0.2
 outfile: null
 status_filter: null
 proxy: null
@@ -23,46 +23,56 @@ detail: false
 validate: false
 local: null
 urlFind:
-- '["''‘“`]\s{0,6}(https{0,1}:[-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100}?)\s{0,6}["''''‘“`]'''
-- =\s{0,6}(https{0,1}:[-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100})
-- '["''‘“`]\s{0,6}([#,.]{0,2}/[-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100}?)\s{0,6}["''''‘“`]'
-- '"([-a-zA-Z0-9()@:%_\+.~#?&//={}]+?[/]{1}[-a-zA-Z0-9()@:%_\+.~#?&//={}]+?)"'
-- href\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100})|action\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([-a-zA-Z0-9()@:%_\+.~#?&//={}]{2,100})
+- '["''‘“”’`]\s{0,6}(https?:\/\/[^\s"''‘“”’`]{2,100})\s{0,6}["''‘“”’`]'
+- =\s{0,6}(https?:\/\/[^\s"'‘“”’`]{2,100})
+- '["''‘“`]\s{0,6}([#,.]{0,2}\/[a-zA-Z0-9()@:%_\+.~#?&\/={}]{2,100}?)\s{0,6}["''''‘“`]'
+- '"([a-zA-Z0-9()@:%_\+.~#?&\/={}]+?[\/]{1}[a-zA-Z0-9()@:%_\+.~#?&\/={}]+?)"'
+- href\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([a-zA-Z0-9()@:%_\+.~#?&\/={}]{2,100})|action\s{0,6}=\s{0,6}["'‘“`]{0,1}\s{0,6}([a-zA-Z0-9()@:%_\+.~#?&\/={}]{2,100})
 jsFind:
-- (https{0,1}:[-a-zA-Z0-9（）@:%_\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\+.~#?&//=]{3}[.]js)
-- '["''‘“`]\s{0,6}(/{0,1}[-a-zA-Z0-9（）@:%_\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\+.~#?&//=]{3}[.]js)'
-- =\s{0,6}[",',’,”]{0,1}\s{0,6}(/{0,1}[-a-zA-Z0-9（）@:%_\+.~#?&//=]{2,100}?[-a-zA-Z0-9（）@:%_\+.~#?&//=]{3}[.]js)
+- (https{0,1}:[-a-zA-Z0-9()@:%_\+.~#?&\/=]{2,100}?[-a-zA-Z0-9()@:%_\+.~#?&\/=]{3}[.]js)
+- '["''‘“`]\s{0,6}(\/{0,1}[-a-zA-Z0-9()@:%_\+.~#?&\/=]{2,100}?[-a-zA-Z0-9()@:%_\+.~#?&\/=]{3}[.]js)'
+- =\s{0,6}[",',’,”]{0,1}\s{0,6}(\/{0,1}[-a-zA-Z0-9()@:%_\+.~#?&\/=]{2,100}?[-a-zA-Z0-9()@:%_\+.~#?&\/=]{3}[.]js)
 rules:
 - name: Swagger
-  regex: \b[\w/]+?((swagger-ui.html)|(\"swagger\":)|(Swagger UI)|(swaggerUi)|(swaggerVersion))\b
+  regex: (?:\b[\w\/]*swagger-ui\.html\b|"\s*swagger"\s*:|\bSwagger UI\b|\bswaggerUi\b|\bswaggerVersion\b)
   loaded: true
+  group: false
 - name: ID Card
-  regex: \b((\d{8}(0\d|10|11|12)([0-2]\d|30|31)\d{3}\$)|(\d{6}(18|19|20)\d{2}(0[1-9]|10|11|12)([0-2]\d|30|31)\d{3}(\d|X|x)))\b
+  regex: \b(\d{8}(?:0\d|10|11|12)(?:[0-2]\d|30|31)\d{3}\$|\d{6}(?:18|19|20)\d{2}(?:0[1-9]|10|11|12)(?:[0-2]\d|30|31)\d{3}(?:\d|X|x))\b
   loaded: true
+  group: false
 - name: Phone
   regex: \b((?:(?:\+|00)86)?1(?:(?:3[\d])|(?:4[5-79])|(?:5[0-35-9])|(?:6[5-7])|(?:7[0-8])|(?:8[\d])|(?:9[189]))\d{8})\b
   loaded: true
+  group: true
 - name: JS Map
-  regex: \b([\w/]+?\.js\.map)
+  regex: \b([\w\/]+?\.js\.map)
   loaded: true
+  group: true
 - name: URL as a value
   regex: (\b\w+?=(https?)(://|%3a%2f%2f))
   loaded: true
+  group: false
 - name: Email
   regex: \b(([a-z0-9][_|\.])*[a-z0-9]+@([a-z0-9][-|_|\.])*[a-z0-9]+\.([a-z]{2,}))\b
   loaded: true
+  group: false
 - name: Internal IP
   regex: '[^0-9]((127\.0\.0\.1)|(10\.\d{1,3}\.\d{1,3}\.\d{1,3})|(172\.((1[6-9])|(2\d)|(3[01]))\.\d{1,3}\.\d{1,3})|(192\.168\.\d{1,3}\.\d{1,3}))'
   loaded: true
+  group: false
 - name: Cloud Key
   regex: \b((accesskeyid)|(accesskeysecret)|\b(LTAI[a-z0-9]{12,20}))\b
   loaded: true
+  group: false
 - name: Shiro
   regex: (=deleteMe|rememberMe=)
   loaded: true
+  group: false
 - name: Suspicious API Key
   regex: '["''][0-9a-zA-Z]{32}[''"]'
   loaded: true
+  group: false
 headers:
   accept: '*/*'
   user-agent: Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.87 Safari/537.36 SE 2.X MetaSr 1.0
