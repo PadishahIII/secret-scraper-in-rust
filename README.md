@@ -15,10 +15,6 @@ The package is prepared for use as both a CLI binary and a Rust library. Until a
 - Write crawler results as CSV and local scan results as YAML.
 - Use as a Rust library through `Config`, `CrawlerFacade`, `FileScannerFacade`, `ScanFacade`, and typed `SecretScraperError` results.
 
-## Architecture
-
-<img width="2001" height="1166" alt="image" src="https://github.com/user-attachments/assets/4ec61568-5950-4570-abee-b5d7f4005156" />
-
 
 
 ## Install
