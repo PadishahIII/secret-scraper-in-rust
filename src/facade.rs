@@ -124,9 +124,14 @@ impl<'a> ScanFacade for FileScannerFacade<'a> {
                         println!("Secrets: {}", self.formatter.format_local_secrets(&res));
                         if let Some(mut out) = self.outfile {
                             out.write_all(
-                                serde_yaml::to_string(&res)
-                                    .map_err(SecretScraperError::Yaml)?
-                                    .as_bytes(),
+                                serde_yaml::to_string(
+                                    &res.iter()
+                                        .filter(|(_, secrets)| !secrets.is_empty())
+                                        .map(|(path, secrets)| (*path, secrets))
+                                        .collect::<HashMap<&PathBuf, &HashSet<Secret>>>(),
+                                )
+                                .map_err(SecretScraperError::Yaml)?
+                                .as_bytes(),
                             )
                             .map_err(SecretScraperError::Io)?;
                         }

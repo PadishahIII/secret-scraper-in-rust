@@ -1,0 +1,28 @@
+name: lint-and-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - name: Run Clippy
+        run: cargo clippy --all-features
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Run Tests
+        run: cargo test --all-features
