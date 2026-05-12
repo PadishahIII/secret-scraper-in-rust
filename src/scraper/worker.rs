@@ -208,22 +208,36 @@ fn is_js(url: &URLNode) -> bool {
     let path = url.url_obj.path().to_lowercase();
     path.ends_with(".js") || path.ends_with(".js.map")
 }
+/// Returns true for content types that may contain extractable text.
+/// Uses a blocklist approach: only skip types that are definitively binary
+/// (images, video, audio, fonts, archives). Everything else — including
+/// unknown types like application/octet-stream — is processed so that
+/// plain-text files served with non-standard MIME types (e.g. `.env`)
+/// are not silently skipped.
 fn should_process(content_type: &str) -> bool {
-    let mut content_type = content_type.to_lowercase();
-    if let Some((c, _)) = content_type.split_once(";") {
-        content_type = c.to_string();
+    let ct = content_type.to_lowercase();
+    let ct = ct
+        .split_once(";")
+        .map(|(c, _)| c.trim())
+        .unwrap_or(ct.trim());
+    if ct.starts_with("application") {
+        return !matches!(
+            ct,
+            "application/pdf"
+                | "application/font-woff"
+                | "application/font-woff2"
+                | "application/vnd.ms-fontobject"
+                | "application/zip"
+                | "application/gzip"
+                | "application/x-tar"
+                | "application/x-rar-compressed"
+                | "application/x-7z-compressed"
+        );
     }
-    content_type.starts_with("text/")
-        || matches!(
-            content_type.as_str(),
-            "application/json"
-                | "application/ld+json"
-                | "application/javascript"
-                | "application/x-javascript"
-                | "application/xml"
-                | "application/xhtml+xml"
-                | "application/x-www-form-urlencoded"
-        )
+    !ct.starts_with("image")
+        && !ct.starts_with("video")
+        && !ct.starts_with("audio")
+        && !ct.starts_with("font")
 }
 fn is_html(content_type: &str) -> bool {
     content_type

@@ -109,7 +109,7 @@ fn print_scan_start_status(is_local_scan: bool) {
 }
 
 fn print_startup_banner(config: &Config) -> Result<()> {
-    let banner = if let Some(local) = &config.local {
+    let header = if let Some(local) = &config.local {
         format!(
             "Target files num: {}\nMax depth: N/A, Max page num: {}\nOutput file: {}",
             count_local_files(local)?,
@@ -125,6 +125,13 @@ fn print_startup_banner(config: &Config) -> Result<()> {
             output_file_label(config)
         )
     };
+    let rules_line = format!(
+        "UrlFind: {}, JSFind: {}, CustomRules: {}",
+        config.url_find_rules.len(),
+        config.js_find_rules.len(),
+        config.custom_rules.len()
+    );
+    let banner = format!("{header}\n{rules_line}");
     println!("{}", banner.bright_black());
     Ok(())
 }
