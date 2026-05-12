@@ -2,11 +2,12 @@
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
+use ignore::WalkBuilder;
 use reqwest::header::{self, HeaderValue};
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File},
-    io::{self, stdout},
+    io::{self},
     path::PathBuf,
     sync::Arc,
 };
@@ -17,9 +18,6 @@ use tokio::{
     task,
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use tracing::info;
-
-use globwalk::GlobWalkerBuilder;
 
 use crate::output::Formatter;
 use crate::{
@@ -59,7 +57,7 @@ pub enum ScanResult {
 pub struct FileScannerFacade<'a> {
     scanner: FileScanner<PathBuf, RegexHandler>,
     formatter: Formatter,
-    outfile: Box<dyn io::Write + Send + 'a>,
+    outfile: Option<Box<dyn io::Write + Send + 'a>>,
     shutdown: CancellationToken,
 }
 impl<'a> FileScannerFacade<'a> {
@@ -74,23 +72,25 @@ impl<'a> FileScannerFacade<'a> {
             .local
             .as_ref()
             .ok_or(io::Error::other("'local' (base dir) not set"))?;
-        let out: Box<dyn io::Write + Send + 'a> = if let Some(f) = &config.outfile {
-            Box::new(
-                File::options()
-                    .write(true)
-                    .truncate(true)
-                    .create(true)
-                    .open(f)?,
-            )
-        } else {
-            Box::new(stdout())
-        };
+        let out: Option<Box<dyn io::Write + Send + 'a>> = config
+            .outfile
+            .as_ref()
+            .map(|f| -> io::Result<Box<dyn io::Write + Send + 'a>> {
+                Ok(Box::new(
+                    File::options()
+                        .write(true)
+                        .truncate(true)
+                        .create(true)
+                        .open(f)?,
+                ))
+            })
+            .transpose()?;
         let handler = RegexHandler::new(config.custom_rules)?;
         let targets = if base.is_file() {
             vec![base.clone()]
         } else {
-            GlobWalkerBuilder::new(base, "**/*")
-                .build()?
+            WalkBuilder::new(base)
+                .build()
                 .filter_map(Result::ok)
                 .filter(|f| f.path().is_file())
                 .map(|f| f.path().to_path_buf())
@@ -107,10 +107,12 @@ impl<'a> FileScannerFacade<'a> {
 }
 #[async_trait]
 impl<'a> ScanFacade for FileScannerFacade<'a> {
-    fn scan(mut self: Box<Self>) -> ScanStdResult {
+    fn scan(self: Box<Self>) -> ScanStdResult {
         let shutdown = self.shutdown.clone();
         Runtime::new()
-            .map_err(|e| SecretScraperError::Runtime(format!("fail to create tokio runtime: {e}")))?
+            .map_err(|e| {
+                SecretScraperError::Runtime(format!("fail to create tokio runtime: {e:?}"))
+            })?
             .block_on(async {
                 task::spawn(async move {
                     if signal::ctrl_c().await.is_ok() {
@@ -119,21 +121,22 @@ impl<'a> ScanFacade for FileScannerFacade<'a> {
                 });
                 match self.scanner.scan().await {
                     Ok(res) => {
-                        tracing::info!("Secrets: {}", self.formatter.format_local_secrets(&res));
-                        self.outfile
-                            .write_all(
+                        println!("Secrets: {}", self.formatter.format_local_secrets(&res));
+                        if let Some(mut out) = self.outfile {
+                            out.write_all(
                                 serde_yaml::to_string(&res)
                                     .map_err(SecretScraperError::Yaml)?
                                     .as_bytes(),
                             )
                             .map_err(SecretScraperError::Io)?;
+                        }
                         Ok(ScanResult::LocalScanResult(
                             res.into_iter().map(|(k, v)| (k.clone(), v)).collect(),
                         ))
                     }
                     Err(e) => {
-                        tracing::error!("local scanner failed: {e}");
-                        Err(SecretScraperError::Scanner(e.to_string()))
+                        tracing::error!("local scanner failed: {e:?}");
+                        Err(SecretScraperError::Scanner(format!("{:?}", e)))
                     }
                 }
             })
@@ -305,12 +308,11 @@ impl ScanFacade for CrawlerFacade {
             self.crawler
                 .run()
                 .await
-                .map_err(|e| SecretScraperError::Crawler(e.to_string()))
+                .map_err(|e| SecretScraperError::Crawler(format!("{:?}", e)))
         })?;
-        let res = self
-            .crawler
-            .result()
-            .map_err(|e| SecretScraperError::Crawler(format!("fail to get crawler result: {e}")))?;
+        let res = self.crawler.result().map_err(|e| {
+            SecretScraperError::Crawler(format!("fail to get crawler result: {e:?}"))
+        })?;
         if let Some(f) = self.outfile {
             let outfile_name = self.outfile_name.as_deref().ok_or_else(|| {
                 SecretScraperError::Output("outfile writer was set without an output path".into())
@@ -321,39 +323,45 @@ impl ScanFacade for CrawlerFacade {
                     outfile_name
                 ))
             })?;
-            info!("{} records written to {}", c, outfile_name);
+            println!("{} records written to {}", c, outfile_name);
         }
         let hosts = self.formatter.found_domains(res.hosts.iter().collect());
         if self.show_detail {
-            tracing::info!(
-                "URL Hierarcy:\n{}",
+            println!(
+                "\nURL Hierarcy:\n{}",
                 self.formatter.format_url_hierarchy(&res.urls)
             );
             if !self.hide_regex {
-                tracing::info!("Secrets:\n{}", self.formatter.format_secrets(&res.secrets));
+                println!(
+                    "\nSecrets:\n{}",
+                    self.formatter.format_secrets(&res.secrets)
+                );
             }
-            tracing::info!("JS:\n{}", self.formatter.format_js(&res.js));
-            tracing::info!(
-                "Related Domains:\n{}",
+            println!("\nJS:\n{}", self.formatter.format_js(&res.js));
+            println!(
+                "\nRelated Domains:\n{}",
                 self.formatter.format_found_domains(hosts)
             );
         } else {
-            tracing::info!(
-                "URL:\n{}",
+            println!(
+                "\nURL:\n{}",
                 self.formatter
                     .format_url_per_domain(&hosts, &res.urls, URLType::Url)
             );
-            tracing::info!(
-                "JS:\n{}",
+            println!(
+                "\nJS:\n{}",
                 self.formatter
                     .format_url_per_domain(&hosts, &res.js, URLType::JS)
             );
-            tracing::info!(
-                "Related Domains:\n{}",
+            println!(
+                "\nRelated Domains:\n{}",
                 self.formatter.format_found_domains(hosts)
             );
             if !self.hide_regex {
-                tracing::info!("Secrets:\n{}", self.formatter.format_secrets(&res.secrets));
+                println!(
+                    "\nSecrets:\n{}",
+                    self.formatter.format_secrets(&res.secrets)
+                );
             }
         }
         Ok(ScanResult::CrawlResult(res))

@@ -54,7 +54,16 @@ impl Formatter {
     }
     /// Format a response status with terminal color styling.
     pub fn format_status(&self, status: &ResponseStatus) -> String {
-        format!("{status}").on_red().to_string()
+        match status {
+            ResponseStatus::Ignore => status.purple().to_string(),
+            ResponseStatus::Valid(code) => match code {
+                200 => status.on_green().to_string(),
+                300..400 => status.on_yellow().to_string(),
+                400..500 => status.on_magenta().to_string(),
+                _ => status.on_red().to_string(),
+            },
+            ResponseStatus::Failed(_) | ResponseStatus::Unknown => status.red().to_string(),
+        }
     }
     /// Format normal content with terminal color styling.
     pub fn format_normal_result(&self, content: &str) -> String {
@@ -81,15 +90,7 @@ impl Formatter {
     }
     /// Convert a URL node to its host or host:port display domain.
     pub fn url_to_domain(&self, node: &URLNode) -> String {
-        let mut s = node.url_obj.host_str().unwrap_or(UNKNOWN_HOST).to_string();
-        match node.url_obj.port_or_known_default() {
-            None => {}
-            Some(p) => {
-                s.push(':');
-                s.push_str(p.to_string().as_ref());
-            }
-        }
-        s
+        node.url_obj.host_str().unwrap_or(UNKNOWN_HOST).to_string()
     }
     /// Collect display domains from URL nodes.
     pub fn found_domains(&self, found_urls: Vec<&URLNode>) -> HashSet<String> {
@@ -112,20 +113,24 @@ impl Formatter {
     /// Format URL parent-child relationships.
     pub fn format_url_hierarchy(&self, urls: &HashMap<URLNode, HashSet<URLNode>>) -> String {
         urls.iter()
-            .map(|(base_url, child_urls)| {
+            .filter_map(|(base_url, child_urls)| {
                 let children = child_urls
                     .iter()
                     .filter(|u| self.filter(u))
                     .map(|u| self.format_single_url(u))
                     .collect::<Vec<String>>();
-                format!(
-                    "{num} URLs from {base} [{base_status}] (depth:{base_depth}): \n{urls_str}",
-                    num = children.len(),
-                    base = base_url.url,
-                    base_status = base_url.response_status,
-                    base_depth = base_url.depth,
-                    urls_str = children.join("\n")
-                )
+                if children.is_empty() {
+                    None
+                } else {
+                    Some(format!(
+                        "{num} URLs from {base} [{base_status}] (depth:{base_depth}): \n{urls_str}",
+                        num = children.len(),
+                        base = base_url.url,
+                        base_status = self.format_status(&base_url.response_status),
+                        base_depth = base_url.depth,
+                        urls_str = children.join("\n")
+                    ))
+                }
             })
             .collect::<Vec<String>>()
             .join("\n")
@@ -139,7 +144,7 @@ impl Formatter {
     ) -> String {
         let root_domains = domains
             .iter()
-            .filter_map(|domain| get_root_domain(domain))
+            .map(|domain| get_root_domain(domain))
             .collect::<HashSet<String>>();
         let mut domain_urls: HashMap<String, Vec<&URLNode>> = HashMap::new();
         for (base_url, child_urls) in urls {
@@ -154,7 +159,7 @@ impl Formatter {
                 let domain = url
                     .url_obj
                     .host_str()
-                    .and_then(get_root_domain)
+                    .map(get_root_domain)
                     .filter(|domain| root_domains.contains(domain))
                     .unwrap_or_else(|| "Other".to_string());
                 domain_urls.entry(domain).or_default().push(url);
@@ -193,19 +198,30 @@ impl Formatter {
     pub fn format_js(&self, js_urls: &HashMap<URLNode, HashSet<URLNode>>) -> String {
         js_urls
             .iter()
-            .map(|(base_url, child_urls)| {
+            .filter_map(|(base_url, child_urls)| {
+                let len = child_urls.len();
                 let child_urls = child_urls
                     .iter()
                     .filter(|u| self.filter(u))
-                    .map(|u| format!("{url} [{res}]", url = u.url, res = u.response_status))
+                    .map(|u| {
+                        format!(
+                            "{url} [{res}]",
+                            url = u.url,
+                            res = self.format_status(&u.response_status)
+                        )
+                    })
                     .collect::<Vec<String>>()
                     .join("\n");
-                format!(
-                    "{num} JS from {base}:\n{urls}",
-                    num = child_urls.len(),
-                    base = base_url.url,
-                    urls = child_urls,
-                )
+                if child_urls.is_empty() {
+                    None
+                } else {
+                    Some(format!(
+                        "{num} JS from {base}:\n{urls}",
+                        num = len,
+                        base = base_url.url,
+                        urls = child_urls,
+                    ))
+                }
             })
             .collect::<Vec<String>>()
             .join("\n")
@@ -222,12 +238,15 @@ impl Formatter {
                     "{num} secrets found in {url} [{res}]:\n{secrets}",
                     num = secrets.len(),
                     url = url.url,
-                    res = url.response_status,
-                    secrets = secrets
-                        .iter()
-                        .map(|s| format!("{}: {}", s.secret_type, s.data))
-                        .collect::<Vec<String>>()
-                        .join("\n")
+                    res = self.format_status(&url.response_status),
+                    secrets = self.format_normal_result(
+                        secrets
+                            .iter()
+                            .map(|s| format!("{}: {}", s.secret_type, s.data))
+                            .collect::<Vec<String>>()
+                            .join("\n")
+                            .as_ref()
+                    )
                 ))
             })
             .collect::<Vec<String>>();
@@ -292,9 +311,14 @@ impl Formatter {
         }
     }
 }
-fn get_root_domain(host: &str) -> Option<String> {
-    let domain = parse_domain_name(host).ok()?;
-    domain.root().map(str::to_string)
+fn get_root_domain(host: &str) -> String {
+    match parse_domain_name(host) {
+        Ok(domain) => domain
+            .root()
+            .map(str::to_string)
+            .unwrap_or(host.to_string()),
+        Err(_) => host.to_string(),
+    }
 }
 /// Write crawler results to CSV and return the number of written records.
 pub fn output_csv(

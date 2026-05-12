@@ -55,3 +55,30 @@ Rust version:
 gtime --verbose ./target/release/secret_scraper -u https://www.baidu.com --detail --allow-domains www.baidu.com  -o 1.csv 
 ```
 
+```
+        Command being timed: "./target/release/secret_scraper -u https://www.baidu.com --detail --allow-domains www.baidu.com -
+o 1.csv"
+        User time (seconds): 2.77
+        System time (seconds): 0.84
+        Percent of CPU this job got: 1%
+        Elapsed (wall clock) time (h:mm:ss or m:ss): 3:23.13
+        Average shared text size (kbytes): 0
+        Average unshared data size (kbytes): 0
+        Average stack size (kbytes): 0
+        Average total size (kbytes): 0
+        Maximum resident set size (kbytes): 62912
+        Average resident set size (kbytes): 0
+        Major (requiring I/O) page faults: 6
+        Minor (reclaiming a frame) page faults: 4864
+        Voluntary context switches: 1742
+        Involuntary context switches: 53108
+        Swaps: 0
+        File system inputs: 0
+        File system outputs: 0
+        Socket messages sent: 1233
+        Socket messages received: 3900
+        Signals delivered: 0
+        Page size (bytes): 16384
+        Exit status: 0
+
+```

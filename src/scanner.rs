@@ -4,6 +4,7 @@ use std::{
     borrow::Borrow,
     collections::{HashMap, HashSet},
     hash::Hash,
+    io,
     path::Path,
     sync::Arc,
 };
@@ -11,6 +12,7 @@ use std::{
 use anyhow::Result;
 use tokio::{fs, task};
 use tokio_util::sync::CancellationToken;
+use tracing::info;
 
 use crate::handler::{Handler, Secret};
 
@@ -50,10 +52,20 @@ where
             if self.shutdown.is_cancelled() {
                 break;
             }
-            let content = fs::read_to_string(target.borrow()).await?;
-            let handler = self.handler.clone();
-            let secrets = task::spawn_blocking(move || handler.handle(&content)).await??;
-            out.insert(target, HashSet::from_iter(secrets));
+            match fs::read_to_string(target.borrow()).await {
+                Ok(content) => {
+                    let handler = self.handler.clone();
+                    let secrets = task::spawn_blocking(move || handler.handle(&content)).await??;
+                    out.insert(target, HashSet::from_iter(secrets));
+                }
+                Err(err) if err.kind() == io::ErrorKind::InvalidData => {
+                    info!(
+                        "ignore {:?} since it's not UTF-8 data",
+                        target.borrow().as_os_str()
+                    )
+                }
+                Err(err) => return Err(err.into()),
+            };
         }
         Ok(out)
     }

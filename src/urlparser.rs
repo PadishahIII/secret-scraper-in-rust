@@ -8,7 +8,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use scraper::{Html, Selector};
 use serde::Serialize;
-use tokio_util::context;
 use url::Url;
 use urlencoding::decode;
 use urlparse::urlparse;

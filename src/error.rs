@@ -72,7 +72,7 @@ impl From<csv::Error> for SecretScraperError {
 
 impl From<anyhow::Error> for SecretScraperError {
     fn from(value: anyhow::Error) -> Self {
-        Self::Other(value.to_string())
+        Self::Other(format!("{:?}", value))
     }
 }
 
@@ -84,6 +84,6 @@ impl From<String> for SecretScraperError {
 
 impl From<&str> for SecretScraperError {
     fn from(value: &str) -> Self {
-        Self::Other(value.to_string())
+        Self::Other(format!("{:?}", value))
     }
 }

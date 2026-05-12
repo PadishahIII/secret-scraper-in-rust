@@ -24,7 +24,7 @@ use owo_colors::OwoColorize;
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("{e}");
+        eprintln!("{e:?}");
         std::process::exit(1);
     }
 }
@@ -38,7 +38,7 @@ fn run() -> Result<()> {
         Some(
             FileConfigLayer::load_from_yaml(yaml_path.clone()).map_err(|e| {
                 SecretScraperError::Other(format!(
-                    "configuration error: failed to load config file {}: {e}",
+                    "configuration error: failed to load config file {}: {e:?}",
                     yaml_path.display()
                 ))
             })?,
@@ -53,14 +53,14 @@ fn run() -> Result<()> {
                 SecretScraperError::Io(std::io::Error::new(
                     e.kind(),
                     format!(
-                        "failed to create default config file {}: {e}",
+                        "failed to create default config file {}: {e:?}",
                         yaml_path.display()
                     ),
                 ))
             })?;
         serde_yaml::to_writer(BufWriter::new(f), &Config::default_with_rules()).map_err(|e| {
             SecretScraperError::Other(format!(
-                "failed to write default config file {}: {e}",
+                "failed to write default config file {}: {e:?}",
                 yaml_path.display()
             ))
         })?;
@@ -72,13 +72,13 @@ fn run() -> Result<()> {
     if let Some(layer) = yaml_layer {
         config
             .apply_file_layer(layer)
-            .map_err(|e| SecretScraperError::Other(format!("configuration error: {e}")))?;
+            .map_err(|e| SecretScraperError::Other(format!("configuration error: {e:?}")))?;
     }
     config.apply_cli_layer(cli_layer);
 
     if let Err(e) = config.validate() {
         return Err(SecretScraperError::Other(format!(
-            "configuration error: {e}"
+            "configuration error: {e:?}"
         )));
     }
 
@@ -88,11 +88,11 @@ fn run() -> Result<()> {
     let is_local_scan = config.local.is_some();
     let facade: Box<dyn ScanFacade> = if is_local_scan {
         Box::new(FileScannerFacade::new(config).map_err(|e| {
-            SecretScraperError::Other(format!("scan setup error: failed to create scanner: {e}"))
+            SecretScraperError::Other(format!("scan setup error: failed to create scanner: {e:?}"))
         })?)
     } else {
         Box::new(CrawlerFacade::new(config).map_err(|e| {
-            SecretScraperError::Other(format!("scan setup error: failed to create crawler: {e}"))
+            SecretScraperError::Other(format!("scan setup error: failed to create crawler: {e:?}"))
         })?)
     };
     print_scan_start_status(is_local_scan);
@@ -156,7 +156,7 @@ fn count_local_files(path: &Path) -> Result<usize> {
         .build()
         .map_err(|e| {
             SecretScraperError::Other(format!(
-                "scan setup error: failed to count local files in {}: {e}",
+                "scan setup error: failed to count local files in {}: {e:?}",
                 path.display()
             ))
         })?

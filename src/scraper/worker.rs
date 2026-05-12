@@ -63,7 +63,7 @@ impl<H: Handler> actix::Handler<FetchMessage> for Worker<H> {
                 Err(e) => {
                     return FetchResult::Err(ScrapeError::process_error(
                         msg.url,
-                        format!("URLNodeBuilder error: {e}"),
+                        format!("URLNodeBuilder error: {e:?}"),
                     ));
                 }
                 Ok(u) => {
@@ -108,10 +108,10 @@ impl<H: Handler> Worker<H> {
                 .acquire(url.url_obj.host_str().unwrap_or_default().to_string())
                 .await
                 .map_err(|e| {
-                    url.response_status = ResponseStatus::Failed(e.to_string());
+                    url.response_status = ResponseStatus::Failed(format!("{:?}", e));
                     ScrapeError::process_error(
                         url.url_obj.clone(),
-                        format!("rate limiter acquire error: {e}"),
+                        format!("rate limiter acquire error: {e:?}"),
                     )
                 })?
         };
@@ -136,7 +136,7 @@ impl<H: Handler> Worker<H> {
         let html = resp.text().await.map_err(|e| {
             ScrapeError::process_error(
                 url.url_obj.clone(),
-                format!("{} receive response body: {e}", &url.url),
+                format!("{} receive response body: {e:?}", &url.url),
             )
         })?;
         if let Some(ct) = &url.content_type
@@ -163,7 +163,7 @@ impl<H: Handler> Worker<H> {
             .map_err(|e| {
                 ScrapeError::process_error(
                     url.url_obj.clone(),
-                    format!("{} extract urls: {e}", &url.url),
+                    format!("{} extract urls: {e:?}", &url.url),
                 )
             })?
             .into_iter()
@@ -186,13 +186,13 @@ impl<H: Handler> Worker<H> {
             .map_err(|e| {
                 ScrapeError::process_error(
                     url.url_obj.clone(),
-                    format!("{} rayon task cancelled: {e}", &url.url),
+                    format!("{} rayon task cancelled: {e:?}", &url.url),
                 )
             })?
             .map_err(|e| {
                 ScrapeError::process_error(
                     url.url_obj.clone(),
-                    format!("{} extract secrets: {e}", &url.url),
+                    format!("{} extract secrets: {e:?}", &url.url),
                 )
             })?;
 

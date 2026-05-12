@@ -1732,6 +1732,7 @@ dependencies = [
  "derive_builder",
  "globset",
  "globwalk",
+ "ignore",
  "lazy_static",
  "num_cpus",
  "owo-colors",

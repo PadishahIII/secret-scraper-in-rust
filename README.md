@@ -19,9 +19,6 @@ The package is prepared for use as both a CLI binary and a Rust library. Until a
 
 ![architecture diagram](docs/architecture.png)
 
-## Showcase
-
-[![showcase video](docs/showcase-thumb.png)](docs/showcase.mp4)
 
 ## Install
 

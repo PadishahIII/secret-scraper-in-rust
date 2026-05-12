@@ -481,15 +481,15 @@ where
             }
             ScrapeResult::Err(err) => match err {
                 ScrapeError::FetchError { url, err } => {
-                    warn!("fail to fetch {url}: {err}");
+                    warn!("fail to fetch {url}: {err:?}");
                     if let Some(u) = self.state.url_bucket.get_mut(&url) {
-                        u.response_status = ResponseStatus::Failed(err.to_string());
+                        u.response_status = ResponseStatus::Failed(format!("{:?}", err));
                     }
                 }
                 ScrapeError::ProcessError { url, err } => {
-                    error!("process error: {err}");
+                    error!("process error: {err:?}");
                     if let Some(u) = self.state.url_bucket.get_mut(&url) {
-                        u.response_status = ResponseStatus::Failed(err.to_string());
+                        u.response_status = ResponseStatus::Failed(format!("{:?}", err));
                     }
                 }
             },
@@ -582,7 +582,7 @@ where
                                     });
                             }
                             FetchResult::Err(e) => {
-                                error!("validate error: {e}");
+                                error!("validate error: {e:?}");
                                 match e {
                                     ScrapeError::FetchError { url, err } => {
                                         if let Some(node) = self.state.url_bucket.get_mut(&url) {
