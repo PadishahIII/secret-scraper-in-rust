@@ -651,6 +651,43 @@ fn status_range_rule_allows_exact_and_range_matches() {
 }
 
 #[test]
+fn status_range_serializes_to_string() {
+    let exact = serde_yaml::to_string(&StatusRange::Exact(200)).expect("serialize exact status");
+    let range = serde_yaml::to_string(&StatusRange::Range(300, 399)).expect("serialize range");
+
+    assert_eq!(exact.trim(), "'200'");
+    assert_eq!(range.trim(), "300-399");
+}
+
+#[test]
+fn status_range_deserializes_from_string() {
+    let exact: StatusRange = serde_yaml::from_str("200").expect("deserialize exact status");
+    let range: StatusRange = serde_yaml::from_str("300-399").expect("deserialize range");
+
+    assert!(matches!(exact, StatusRange::Exact(200)));
+    assert!(matches!(range, StatusRange::Range(300, 399)));
+}
+
+#[test]
+fn status_range_rule_serializes_ranges_as_strings() {
+    let rule = StatusRangeRule::from(vec![StatusRange::Exact(200), StatusRange::Range(300, 399)]);
+    let yaml = serde_yaml::to_string(&rule).expect("serialize status range rule");
+
+    assert_eq!(yaml, "ranges:\n- '200'\n- 300-399\n");
+}
+
+#[test]
+fn status_range_rule_deserializes_ranges_from_strings() {
+    let rule: StatusRangeRule =
+        serde_yaml::from_str("ranges:\n- '200'\n- 300-399\n").expect("deserialize rule");
+
+    assert!(rule.is_allowed(200));
+    assert!(rule.is_allowed(300));
+    assert!(rule.is_allowed(399));
+    assert!(!rule.is_allowed(400));
+}
+
+#[test]
 fn parse_status_range_invalid() {
     assert!(parse_status_range("abc").is_err());
     assert!(parse_status_range("200-abc").is_err());

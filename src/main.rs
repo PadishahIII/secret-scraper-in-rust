@@ -109,6 +109,12 @@ fn print_scan_start_status(is_local_scan: bool) {
 }
 
 fn print_startup_banner(config: &Config) -> Result<()> {
+    let banner = build_startup_banner(config)?;
+    println!("{}", banner.bright_black());
+    Ok(())
+}
+
+fn build_startup_banner(config: &Config) -> Result<String> {
     let header = if let Some(local) = &config.local {
         format!(
             "Target files num: {}\nMax depth: N/A, Max page num: {}\nOutput file: {}",
@@ -131,9 +137,12 @@ fn print_startup_banner(config: &Config) -> Result<()> {
         config.js_find_rules.len(),
         config.custom_rules.len()
     );
-    let banner = format!("{header}\n{rules_line}");
-    println!("{}", banner.bright_black());
-    Ok(())
+    let status_line = config
+        .status_filter
+        .as_ref()
+        .map(|filter| format!("\nStatus filter: {filter}"))
+        .unwrap_or_default();
+    Ok(format!("{header}\n{rules_line}{status_line}"))
 }
 
 fn count_target_urls(config: &Config) -> Result<usize> {

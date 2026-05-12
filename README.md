@@ -4,6 +4,8 @@ SecretScraper is a Rust CLI and library for crawling web targets, discovering UR
 
 The package is prepared for use as both a CLI binary and a Rust library. Until a crates.io release is available, build, run, and depend on it from source.
 
+**Library Doc**: <https://docs.rs/secret_scraper/latest/secret_scraper/>
+
 ## Features
 
 - Crawl a single URL or newline-delimited URL seed file.
@@ -20,7 +22,7 @@ The package is prepared for use as both a CLI binary and a Rust library. Until a
 ## Install
 
 ```bash
-cargo install --path .
+cargo install secret_scraper
 ```
 
 This builds an optimized release binary and installs it as `secret_scraper` in your Cargo bin directory (typically `~/.cargo/bin`). Make sure that directory is on your `PATH`.
@@ -220,17 +222,14 @@ disallow_domains:
 url_file: "urls.txt"
 config: "showcase.yaml"
 timeout: 10.0
-mode: Thorough
+mode: thorough
 max_page: 500
 max_depth: 3
 max_concurrent_per_domain: 10
 min_request_interval: 0.5
 outfile: "result.csv"
 status_filter:
-  - Exact: 200
-  - Range:
-      - 300
-      - 399
+  - ["200", "200-400"]
 proxy: "http://127.0.0.1:8080"
 hide_regex: false
 follow_redirects: true
@@ -309,7 +308,7 @@ headers:
 | `url_file` | `null` | Optional newline-delimited seed URL file. |
 | `config` | `setting.yaml` | Config file path used by the CLI. |
 | `timeout` | `30.0` | Request timeout in seconds. |
-| `mode` | `Normal` | Crawl mode preset. `Normal` uses depth 1; `Thorough` uses depth 2. |
+| `mode` | `normal` | Crawl mode preset. `normal` uses depth 1; `thorough` uses depth 2. |
 | `max_page` | `1000` | Maximum number of pages to crawl. |
 | `max_depth` | `null` | Optional explicit crawl depth override. `0` means seed URLs only. |
 | `max_concurrent_per_domain` | `50` | Maximum concurrent requests per domain. |
@@ -332,16 +331,12 @@ headers:
 ### Field Notes
 
 - At least one of `url`, `url_file`, or `local` must be set before scanning.
-- `mode` accepts `Normal`/`Thorough` in generated YAML and `normal`/`thorough` on the CLI.
 - `follow_redirects` is the YAML field name; the CLI flag is `--follow-redirect`.
 - `headers` values are merged onto the default header map. Reusing `accept` or `user-agent` overrides the default values.
 - `urlFind` and `jsFind` entries are plain regex strings. They do not use `name` or `loaded`, and they emit capture groups by default.
 - `rules` entries use `name`, `regex`, `loaded`, and optional `group`. `group: true` emits capture groups instead of the full match; omitted `group` defaults to `false`.
 - `urlFind`, `jsFind`, and loaded `rules` entries are appended to any existing rules when you apply a YAML layer to `Config::default_with_rules()`.
-- `rules` entries with `loaded: false` are skipped.
-- Invalid regex patterns or invalid header names/values cause configuration loading to fail.
 
-`status_filter` is serialized as `Exact` and `Range` entries. You normally set it from the CLI with `--status 200,300-399`; if writing YAML manually, use the tagged enum shape shown in the showcase.
 
 ### Built-In Rules
 
@@ -471,4 +466,3 @@ cargo doc --no-deps --open
 - Crawler output files are CSV.
 - Local scan output files are YAML.
 - The project currently uses Rust `regex` for rule matching.
-- Public package links are intentionally omitted until the crate is published.

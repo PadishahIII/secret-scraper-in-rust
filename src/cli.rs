@@ -2,7 +2,7 @@
 
 use std::{
     collections::BTreeMap,
-    error,
+    error, fmt,
     fs::File,
     io::{self, BufReader},
     path::PathBuf,
@@ -16,16 +16,58 @@ use pub_fields::pub_fields;
 use regex::Regex;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderName, HeaderValue, USER_AGENT};
 use serde::{
-    Deserialize, Serialize, de::DeserializeOwned, ser::SerializeMap, ser::SerializeStruct,
+    Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned, ser::SerializeMap,
+    ser::SerializeStruct,
 };
 
 /// HTTP status filter entry.
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
+#[derive(Clone, Debug, Copy)]
 pub enum StatusRange {
     /// Match one exact status code.
     Exact(u16),
     /// Match an inclusive status-code range.
     Range(u16, u16),
+}
+
+impl Serialize for StatusRange {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            StatusRange::Exact(status) => serializer.serialize_str(&status.to_string()),
+            StatusRange::Range(start, end) => serializer.serialize_str(&format!("{start}-{end}")),
+        }
+    }
+}
+
+impl fmt::Display for StatusRange {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StatusRange::Exact(status) => write!(f, "{status}"),
+            StatusRange::Range(start, end) => write!(f, "{start}-{end}"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for StatusRange {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let rule = String::deserialize(deserializer)?;
+        let ranges = parse_status_range_rule(&rule)
+            .map_err(|err| serde::de::Error::custom(err.to_string()))?
+            .ranges;
+
+        match ranges.as_slice() {
+            [range] => Ok(*range),
+            _ => Err(serde::de::Error::custom(format!(
+                "expected exactly one status range, got {}",
+                ranges.len()
+            ))),
+        }
+    }
 }
 /// Set of accepted HTTP status codes.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -39,6 +81,18 @@ impl StatusRangeRule {
             StatusRange::Exact(s) => *s == status_code,
             StatusRange::Range(start, end) => *start <= status_code && status_code <= *end,
         })
+    }
+}
+
+impl fmt::Display for StatusRangeRule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = self
+            .ranges
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        f.write_str(&label)
     }
 }
 impl From<Vec<StatusRange>> for StatusRangeRule {
@@ -701,8 +755,10 @@ impl Config {
 #[derive(Debug, ValueEnum, Clone, Serialize, Deserialize, Default)]
 pub enum Mode {
     #[default]
+    #[serde(rename = "normal")]
     /// Normal mode uses a max-depth preset of 1.
     Normal,
+    #[serde(rename = "thorough")]
     /// Thorough mode uses a max-depth preset of 2.
     Thorough,
 }

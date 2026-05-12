@@ -7,7 +7,7 @@ disallow_domains: null
 url_file: null
 config: setting.yaml
 timeout: 5.0
-mode: Normal
+mode: normal
 max_page: 1000
 max_depth: null
 max_concurrent_per_domain: 5
