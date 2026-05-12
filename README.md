@@ -17,7 +17,8 @@ The package is prepared for use as both a CLI binary and a Rust library. Until a
 
 ## Architecture
 
-![architecture diagram](docs/architecture.png)
+<img width="2001" height="1166" alt="image" src="https://github.com/user-attachments/assets/4ec61568-5950-4570-abee-b5d7f4005156" />
+
 
 
 ## Install
