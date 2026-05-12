@@ -23,12 +23,6 @@ fn temp_file(name: &str, content: &str) -> PathBuf {
     path
 }
 
-fn temp_dir(name: &str) -> PathBuf {
-    let path = unique_temp_path(name);
-    fs::create_dir(&path).expect("create temp dir");
-    path
-}
-
 fn run(args: &[&str]) -> Output {
     Command::new(binary_path())
         .args(args)
@@ -46,10 +40,6 @@ fn stdout(output: &Output) -> String {
 
 fn remove_file_if_exists(path: &Path) {
     let _ = fs::remove_file(path);
-}
-
-fn remove_dir_if_exists(path: &Path) {
-    let _ = fs::remove_dir_all(path);
 }
 
 #[test]
